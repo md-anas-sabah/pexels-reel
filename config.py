@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 # API Configuration
-PEXELS_API_KEY = "D5KPwqY6nRIZIkM93E2Hc7mQowQOAdBIIBgPDQUqm2iNeJosigMOTG4t"
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 PEXELS_BASE_URL = "https://api.pexels.com/videos"
 
 # Video Processing Settings
