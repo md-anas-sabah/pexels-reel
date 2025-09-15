@@ -307,14 +307,16 @@ class VideoProcessingTool(BaseTool):
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # FFmpeg command for cropping and resizing with audio preservation
+            # FFmpeg command for high-quality cropping and resizing with audio preservation
             cmd = [
                 "ffmpeg", "-i", video_path,
-                "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale=720:1280",
-                "-c:a", "aac",  # Audio codec
+                "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale=720:1280:flags=lanczos",
+                "-c:a", "aac", "-b:a", "128k",  # High quality audio
                 "-c:v", "libx264",  # Video codec
-                "-preset", "medium",  # Encoding preset
-                "-crf", "23",  # Quality setting
+                "-preset", "slower",  # Better quality preset
+                "-crf", "18",  # High quality setting (lower = better)
+                "-pix_fmt", "yuv420p",  # Compatibility format
+                "-profile:v", "high", "-level", "4.0",  # High profile for better quality
                 "-movflags", "+faststart",  # Optimize for streaming
                 "-y",  # Overwrite output file
                 output_path
