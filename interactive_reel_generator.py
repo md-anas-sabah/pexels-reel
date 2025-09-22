@@ -536,7 +536,7 @@ class ReelGeneratorUI:
             print(f"  📄 File: {os.path.basename(result['output_file'])}")
             print(f"  📐 Resolution: {result['processing_result']['final_resolution']}")
             print(f"  🎭 Original by: {result['photographer_credit']}")
-            print(f"  🎯 Smart cropping: {'Yes' if result['detection_result']['roi_detected'] else 'Center crop'}")
+            print(f"  🎯 Processing: {result['processing_result'].get('processing_method', 'scale_with_padding')}")
             
             # Show audio information if available
             if result.get('audio_results'):

@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
 AI Video Reel Converter using CrewAI and Pexels API
-Converts videos to 9:16 aspect ratio (720x1280) with smart object detection cropping
+Converts videos to 9:16 aspect ratio (720x1280) with intelligent scaling and padding
 """
 
 import os
-import cv2
-import numpy as np
 import requests
 import logging
 from pathlib import Path
@@ -65,7 +63,9 @@ class PexelsVideoSearchTool(BaseTool):
             params = {
                 "query": query,
                 "per_page": per_page,
-                "orientation": "landscape"  # Prefer landscape for smart cropping
+                "min_width": 720,    # Minimum width for 720p
+                "min_height": 1280,  # Minimum height for vertical content
+                "orientation": "portrait"  # Prefer portrait/vertical videos
             }
             
             response = requests.get(f"{self._base_url}/search", headers=headers, params=params)
@@ -112,230 +112,30 @@ class PexelsVideoSearchTool(BaseTool):
             logger.error(f"Error searching videos: {e}")
             return f"Error searching videos: {str(e)}"
 
-class ObjectDetectionTool(BaseTool):
-    """Tool for detecting objects and regions of interest in video frames"""
-    name: str = "object_detection"
-    description: str = "Detect faces, people, and objects in video frames to determine optimal cropping region"
-    
-    def __init__(self):
-        super().__init__()
-        self._face_cascade = None
-        self._body_cascade = None
-        self._load_cascades()
-    
-    def _load_cascades(self):
-        """Load OpenCV cascade classifiers"""
-        try:
-            # Load face detection cascade
-            face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            self._face_cascade = cv2.CascadeClassifier(face_cascade_path)
-            
-            # Load upper body detection cascade
-            body_cascade_path = cv2.data.haarcascades + 'haarcascade_upperbody.xml'
-            self._body_cascade = cv2.CascadeClassifier(body_cascade_path)
-            
-            logger.info("Object detection cascades loaded successfully")
-        except Exception as e:
-            logger.error(f"Error loading cascades: {e}")
-    
-    def _run(self, video_path: str) -> str:
-        """Analyze video frames to find optimal cropping region
-        
-        Args:
-            video_path: Path to the video file for analysis
-        """
-        try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                return f"Error: Could not open video file {video_path}"
-            
-            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # Sample frames for analysis (every 10th frame)
-            sample_interval = max(1, total_frames // 20)
-            
-            roi_candidates = []
-            
-            for frame_idx in range(0, total_frames, sample_interval):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                ret, frame = cap.read()
-                
-                if not ret:
-                    continue
-                
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                
-                # Detect faces
-                faces = self._face_cascade.detectMultiScale(
-                    gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30)
-                ) if self._face_cascade is not None else []
-                
-                # Detect upper bodies
-                bodies = self._body_cascade.detectMultiScale(
-                    gray, scaleFactor=1.1, minNeighbors=3, minSize=(50, 50)
-                ) if self._body_cascade is not None else []
-                
-                # Combine detections
-                detections = list(faces) + list(bodies)
-                
-                if len(detections) > 0:
-                    # Find bounding box of all detections
-                    x_min = min([x for x, y, w, h in detections])
-                    y_min = min([y for x, y, w, h in detections])
-                    x_max = max([x + w for x, y, w, h in detections])
-                    y_max = max([y + h for x, y, w, h in detections])
-                    
-                    # Add generous padding to reduce cropping
-                    padding_x = (x_max - x_min) * 0.8  # Increased from 0.2 to 0.8
-                    padding_y = (y_max - y_min) * 0.8  # Increased from 0.2 to 0.8
-                    
-                    roi_x = max(0, int(x_min - padding_x))
-                    roi_y = max(0, int(y_min - padding_y))
-                    roi_w = min(frame_width - roi_x, int((x_max - x_min) + 2 * padding_x))
-                    roi_h = min(frame_height - roi_y, int((y_max - y_min) + 2 * padding_y))
-                    
-                    roi_candidates.append((roi_x, roi_y, roi_w, roi_h))
-            
-            cap.release()
-            
-            if roi_candidates:
-                # Find the most common ROI region
-                roi_x = int(np.median([roi[0] for roi in roi_candidates]))
-                roi_y = int(np.median([roi[1] for roi in roi_candidates]))
-                roi_w = int(np.median([roi[2] for roi in roi_candidates]))
-                roi_h = int(np.median([roi[3] for roi in roi_candidates]))
-                
-                # Instead of forcing exact 9:16, be more flexible with aspect ratio
-                target_aspect = 9.0 / 16.0  # 0.5625
-                current_aspect = roi_w / roi_h
-                
-                # Only adjust if the aspect ratio is very different (±30% tolerance)
-                aspect_tolerance = 0.3
-                aspect_diff = abs(current_aspect - target_aspect) / target_aspect
-                
-                if aspect_diff > aspect_tolerance:
-                    if current_aspect > target_aspect * 1.3:
-                        # Too wide, adjust width but keep more content
-                        new_width = int(roi_h * target_aspect * 1.2)  # 20% wider than target
-                        if new_width < roi_w:
-                            roi_x = roi_x + (roi_w - new_width) // 2
-                            roi_w = new_width
-                    elif current_aspect < target_aspect * 0.7:
-                        # Too tall, adjust height but keep more content
-                        new_height = int(roi_w / (target_aspect * 0.8))  # 20% shorter than target
-                        if new_height < roi_h:
-                            roi_y = roi_y + (roi_h - new_height) // 2
-                            roi_h = new_height
-                
-                # Ensure ROI is within frame bounds
-                roi_x = max(0, min(roi_x, frame_width - roi_w))
-                roi_y = max(0, min(roi_y, frame_height - roi_h))
-                roi_w = min(roi_w, frame_width - roi_x)
-                roi_h = min(roi_h, frame_height - roi_y)
-                
-                return json.dumps({
-                    "roi_detected": True,
-                    "roi_x": roi_x,
-                    "roi_y": roi_y,
-                    "roi_width": roi_w,
-                    "roi_height": roi_h,
-                    "frame_width": frame_width,
-                    "frame_height": frame_height,
-                    "detections_count": len(roi_candidates)
-                })
-            else:
-                # No objects detected, use smart center crop with less aggressive cropping
-                target_aspect = 9.0 / 16.0
-                current_aspect = frame_width / frame_height
-                
-                # Use 80% of the optimal crop to preserve more content
-                conservative_factor = 0.8
-                
-                if current_aspect > target_aspect:
-                    # Video is too wide - crop width but preserve more content
-                    ideal_crop_width = int(frame_height * target_aspect)
-                    crop_width = int(ideal_crop_width / conservative_factor)
-                    crop_width = min(crop_width, frame_width)  # Don't exceed frame width
-                    crop_x = (frame_width - crop_width) // 2
-                    return json.dumps({
-                        "roi_detected": False,
-                        "roi_x": crop_x,
-                        "roi_y": 0,
-                        "roi_width": crop_width,
-                        "roi_height": frame_height,
-                        "frame_width": frame_width,
-                        "frame_height": frame_height,
-                        "detections_count": 0
-                    })
-                else:
-                    # Video is too tall - crop height but preserve more content
-                    ideal_crop_height = int(frame_width / target_aspect)
-                    crop_height = int(ideal_crop_height / conservative_factor)
-                    crop_height = min(crop_height, frame_height)  # Don't exceed frame height
-                    crop_y = (frame_height - crop_height) // 2
-                    return json.dumps({
-                        "roi_detected": False,
-                        "roi_x": 0,
-                        "roi_y": crop_y,
-                        "roi_width": frame_width,
-                        "roi_height": crop_height,
-                        "frame_width": frame_width,
-                        "frame_height": frame_height,
-                        "detections_count": 0
-                    })
-                    
-        except Exception as e:
-            logger.error(f"Error in object detection: {e}")
-            return f"Error in object detection: {str(e)}"
+# ObjectDetectionTool removed - using Pexels API filtering instead
 
 class VideoProcessingTool(BaseTool):
-    """Tool for processing videos with smart cropping and resizing"""
+    """Tool for processing videos with scaling to 720x1280 (9:16 aspect ratio)"""
     name: str = "video_processing"
-    description: str = "Process video with smart cropping and resize to 720x1280 (9:16 aspect ratio)"
+    description: str = "Process video by scaling to 720x1280 (9:16 aspect ratio) without cropping"
     
-    def _run(self, video_path: str, output_path: str, roi_data: str) -> str:
-        """Process video with FFmpeg using ROI data
+    def _run(self, video_path: str, output_path: str) -> str:
+        """Process video with FFmpeg scaling only
         
         Args:
             video_path: Path to the video file
             output_path: Output path for processed video
-            roi_data: ROI detection data in JSON format
         """
         try:
-            roi_info = json.loads(roi_data)
-            
-            # Extract ROI parameters - handle multiple formats
-            if "roi_x" in roi_info:
-                # Flat format from object detection tool
-                crop_x = roi_info["roi_x"]
-                crop_y = roi_info["roi_y"]
-                crop_w = roi_info["roi_width"]
-                crop_h = roi_info["roi_height"]
-            elif "roi" in roi_info:
-                # Nested format from agent processing
-                crop_x = roi_info["roi"]["x"]
-                crop_y = roi_info["roi"]["y"]
-                crop_w = roi_info["roi"]["width"]
-                crop_h = roi_info["roi"]["height"]
-            elif "roi_coordinates" in roi_info:
-                # Another nested format from agent processing
-                crop_x = roi_info["roi_coordinates"]["x"]
-                crop_y = roi_info["roi_coordinates"]["y"]
-                crop_w = roi_info["roi_coordinates"]["width"]
-                crop_h = roi_info["roi_coordinates"]["height"]
-            else:
-                return "Error: Invalid ROI data format"
-            
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # FFmpeg command for high-quality cropping and resizing with audio preservation
+            # FFmpeg command for high-quality scaling WITHOUT audio preservation
+            # Remove original audio so only TTS audio will be in final output
             cmd = [
                 "ffmpeg", "-i", video_path,
-                "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale=720:1280:flags=lanczos",
-                "-c:a", "aac", "-b:a", "128k",  # High quality audio
+                "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:-1:-1:color=black",
+                "-an",  # Remove audio stream
                 "-c:v", "libx264",  # Video codec
                 "-preset", "slower",  # Better quality preset
                 "-crf", "18",  # High quality setting (lower = better)
@@ -351,17 +151,11 @@ class VideoProcessingTool(BaseTool):
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode == 0:
-                # Handle roi_detected from different formats
-                roi_detected = roi_info.get("roi_detected", True)
-                detections_count = roi_info.get("detections_count", 0)
-                
                 return json.dumps({
                     "success": True,
                     "output_path": output_path,
-                    "crop_region": f"{crop_w}x{crop_h}+{crop_x}+{crop_y}",
-                    "final_resolution": "720x1280",
-                    "roi_detected": roi_detected,
-                    "detections_count": detections_count
+                    "processing_method": "scale_with_padding",
+                    "final_resolution": "720x1280"
                 })
             else:
                 error_msg = result.stderr
@@ -506,30 +300,15 @@ class AudioMixingTool(BaseTool):
             with open(temp_audio_path, 'wb') as f:
                 f.write(response.content)
             
-            # Check if video has audio stream first
-            probe_cmd = ["ffprobe", "-v", "quiet", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path]
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
-            has_video_audio = bool(probe_result.stdout.strip())
-            
-            if has_video_audio:
-                # Video has audio - mix both audio streams
-                cmd = [
-                    "ffmpeg", "-i", video_path, "-i", temp_audio_path,
-                    "-filter_complex", "[1:a]volume=0.3[a1];[0:a][a1]amix=inputs=2:duration=first",
-                    "-c:v", "copy",  # Copy video without re-encoding
-                    "-c:a", "aac", "-b:a", "128k",
-                    "-shortest",  # Match the duration of the shorter stream
-                    "-y", output_path
-                ]
-            else:
-                # Video has no audio - just add the background music
-                cmd = [
-                    "ffmpeg", "-i", video_path, "-i", temp_audio_path,
-                    "-c:v", "copy",  # Copy video without re-encoding
-                    "-c:a", "aac", "-b:a", "128k",
-                    "-shortest",  # Match the duration of the shorter stream
-                    "-y", output_path
-                ]
+            # Since we remove audio during video processing, video will have no audio
+            # Just add the TTS audio to the silent video
+            cmd = [
+                "ffmpeg", "-i", video_path, "-i", temp_audio_path,
+                "-c:v", "copy",  # Copy video without re-encoding
+                "-c:a", "aac", "-b:a", "128k",
+                "-shortest",  # Match the duration of the shorter stream
+                "-y", output_path
+            ]
             
             logger.info(f"Mixing audio with command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -575,7 +354,6 @@ class VideoReelConverter:
         
         # Initialize tools
         self.pexels_tool = PexelsVideoSearchTool(pexels_api_key)
-        self.detection_tool = ObjectDetectionTool()
         self.processing_tool = VideoProcessingTool()
         
         # Initialize audio tools if Fal key is available
@@ -606,24 +384,15 @@ class VideoReelConverter:
             verbose=True
         )
         
-        # Object Detection Agent
-        self.detection_agent = Agent(
-            role="Computer Vision Specialist",
-            goal="Analyze videos to identify optimal cropping regions using object detection",
-            backstory="""You are a computer vision expert specializing in object detection and 
-            video analysis. You can identify faces, people, and important objects in videos to 
-            determine the best cropping strategy for vertical video conversion.""",
-            tools=[self.detection_tool],
-            verbose=True
-        )
+# Object Detection Agent removed - using Pexels API filtering instead
         
         # Video Processing Agent
         self.processing_agent = Agent(
             role="Video Production Expert",
-            goal="Convert videos to perfect reel format with smart cropping and optimal quality",
+            goal="Convert videos to perfect reel format with optimal scaling and quality",
             backstory="""You are a video production specialist who creates high-quality vertical 
-            videos for social media. You ensure videos are properly cropped, resized, and 
-            optimized while maintaining audio quality.""",
+            videos for social media. You ensure videos are properly scaled to 720x1280 resolution 
+            while maintaining aspect ratio and optimizing quality.""",
             tools=[self.processing_tool],
             verbose=True
         )
@@ -749,32 +518,18 @@ class VideoReelConverter:
             video_filename = f"video_{video_data['id']}.mp4"
             video_path = self.download_video(video_data['download_url'], video_filename)
             
-            # Object detection (same as before)
-            detection_task = Task(
-                description=f"""Analyze the video at {video_path} to detect faces, people, and important 
-                objects. Determine the optimal cropping region for converting this video to 9:16 aspect 
-                ratio while preserving the most important visual elements.""",
-                agent=self.detection_agent,
-                expected_output="JSON object with ROI coordinates and detection information"
-            )
+            # Video processing (save to unaudio_video folder first) - no cropping, just scaling
+            unaudio_filename = f"reel_{video_data['id']}_{query.replace(' ', '_')}_unaudio.mp4"
+            unaudio_dir = os.path.join(self.output_dir, "unaudio_video")
+            unaudio_output_path = os.path.join(unaudio_dir, unaudio_filename)
             
-            detection_crew = Crew(
-                agents=[self.detection_agent],
-                tasks=[detection_task],
-                process=Process.sequential,
-                verbose=True
-            )
-            
-            detection_result = detection_crew.kickoff()
-            
-            # Video processing (without audio first)
-            temp_output_filename = f"temp_reel_{video_data['id']}.mp4"
-            temp_output_path = os.path.join(self.temp_dir, temp_output_filename)
+            # Ensure unaudio_video directory exists
+            os.makedirs(unaudio_dir, exist_ok=True)
             
             processing_task = Task(
-                description=f"""Process the video at {video_path} using the ROI data: {detection_result}. 
-                Crop the video to the optimal region and resize it to exactly 720x1280 pixels (9:16 aspect ratio). 
-                Preserve audio quality and optimize for social media playback. Save to {temp_output_path}.""",
+                description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio). 
+                Maintain aspect ratio with padding if needed. Preserve audio quality and optimize for social media playback. 
+                Save to {unaudio_output_path}.""",
                 agent=self.processing_agent,
                 expected_output="JSON object with processing results and output file information"
             )
@@ -791,6 +546,11 @@ class VideoReelConverter:
             
             if not processing_data.get("success"):
                 return None
+            
+            # Log that the unaudio video has been saved
+            logger.info(f"✅ SCALED VIDEO SAVED: {unaudio_output_path}")
+            logger.info(f"🎬 You can now check the video quality at: {unaudio_output_path}")
+            logger.info(f"⏹️  To stop before audio generation, press Ctrl+C now!")
             
             # Audio generation and mixing (if requested)
             final_output_filename = f"reel_{video_data['id']}_{query.replace(' ', '_')}.mp4"
@@ -836,7 +596,13 @@ class VideoReelConverter:
                 
                 # Mix audio with video if we have any audio
                 if audio_results:
-                    current_video_path = temp_output_path
+                    # Check if unaudio video file exists
+                    if not os.path.exists(unaudio_output_path):
+                        logger.error(f"❌ Unaudio video file not found: {unaudio_output_path}")
+                        logger.error("Cannot proceed with audio mixing. Video processing may have failed.")
+                        return None
+                    
+                    current_video_path = unaudio_output_path
                     
                     for i, audio_data in enumerate(audio_results):
                         if i == len(audio_results) - 1:
@@ -846,46 +612,59 @@ class VideoReelConverter:
                             # Intermediate mixing
                             output_path = os.path.join(self.temp_dir, f"mixed_{i}_{video_data['id']}.mp4")
                         
-                        mixing_task = Task(
-                            description=f"""Mix the audio from {audio_data} with the video at {current_video_path}. 
-                            Output the final video with mixed audio to {output_path}. Balance audio levels appropriately 
-                            for social media consumption.""",
-                            agent=self.audio_agent,
-                            expected_output="JSON object with mixing results"
-                        )
+                        # Direct audio mixing bypassing CrewAI to avoid issues
+                        logger.info(f"Mixing audio directly: {audio_data['audio_url']} with {current_video_path}")
                         
-                        mixing_crew = Crew(
-                            agents=[self.audio_agent],
-                            tasks=[mixing_task],
-                            process=Process.sequential,
-                            verbose=True
-                        )
+                        # Double check current video path exists before mixing
+                        if not os.path.exists(current_video_path):
+                            logger.error(f"❌ Video file missing during mixing: {current_video_path}")
+                            return None
                         
-                        mixing_result = mixing_crew.kickoff()
-                        mixing_data = json.loads(str(mixing_result))
-                        
-                        if mixing_data.get("success"):
-                            current_video_path = output_path
-                        else:
-                            logger.error(f"Audio mixing failed: {mixing_data}")
-                            # Fallback: copy temp video to final output
-                            import shutil
-                            shutil.copy2(temp_output_path, final_output_path)
-                            break
+                        try:
+                            audio_mixing_tool = AudioMixingTool()
+                            mixing_result = audio_mixing_tool._run(
+                                video_path=current_video_path,
+                                audio_url=audio_data['audio_url'],
+                                output_path=output_path
+                            )
+                            mixing_data = json.loads(mixing_result)
+                            
+                            if mixing_data.get("success"):
+                                # Verify the output file actually exists
+                                if os.path.exists(output_path):
+                                    current_video_path = output_path
+                                    logger.info(f"✅ Audio mixing successful: {output_path}")
+                                else:
+                                    logger.error(f"❌ Audio mixing claimed success but output file missing: {output_path}")
+                                    return None
+                            else:
+                                logger.error(f"❌ Audio mixing failed: {mixing_data}")
+                                return None
+                        except Exception as e:
+                            logger.error(f"❌ Direct audio mixing failed: {e}")
+                            return None
                 else:
-                    # No audio requested - just copy temp video to final output
-                    import shutil
-                    shutil.copy2(temp_output_path, final_output_path)
+                    # No audio requested - just copy unaudio video to final output
+                    if os.path.exists(unaudio_output_path):
+                        import shutil
+                        shutil.copy2(unaudio_output_path, final_output_path)
+                    else:
+                        logger.error(f"❌ Cannot copy unaudio video - file not found: {unaudio_output_path}")
+                        return None
             else:
-                # No audio generation available - just copy temp video to final output
-                import shutil
-                shutil.copy2(temp_output_path, final_output_path)
+                # No audio generation available - just copy unaudio video to final output
+                if os.path.exists(unaudio_output_path):
+                    import shutil
+                    shutil.copy2(unaudio_output_path, final_output_path)
+                else:
+                    logger.error(f"❌ Cannot copy unaudio video - file not found: {unaudio_output_path}")
+                    return None
             
             return {
                 "original_video": video_data,
-                "detection_result": json.loads(str(detection_result)),
                 "processing_result": processing_data,
                 "audio_results": audio_results,
+                "unaudio_file": unaudio_output_path,
                 "output_file": final_output_path,
                 "photographer_credit": f"Video by {video_data['photographer']} on Pexels"
             }
@@ -979,32 +758,18 @@ class VideoReelConverter:
                     video_filename = f"video_{video_data['id']}.mp4"
                     video_path = self.download_video(video_data['download_url'], video_filename)
                     
-                    # Task 2: Object detection
-                    detection_task = Task(
-                        description=f"""Analyze the video at {video_path} to detect faces, people, and important 
-                        objects. Determine the optimal cropping region for converting this video to 9:16 aspect 
-                        ratio while preserving the most important visual elements.""",
-                        agent=self.detection_agent,
-                        expected_output="JSON object with ROI coordinates and detection information"
-                    )
+                    # Task 2: Video processing - save to unaudio_video first for consistency
+                    unaudio_filename = f"reel_{video_data['id']}_{query.replace(' ', '_')}_unaudio.mp4"
+                    unaudio_dir = os.path.join(self.output_dir, "unaudio_video")
+                    unaudio_output_path = os.path.join(unaudio_dir, unaudio_filename)
                     
-                    detection_crew = Crew(
-                        agents=[self.detection_agent],
-                        tasks=[detection_task],
-                        process=Process.sequential,
-                        verbose=True
-                    )
-                    
-                    detection_result = detection_crew.kickoff()
-                    
-                    # Task 3: Video processing
-                    output_filename = f"reel_{video_data['id']}_{query.replace(' ', '_')}.mp4"
-                    output_path = os.path.join(self.output_dir, output_filename)
+                    # Ensure unaudio_video directory exists
+                    os.makedirs(unaudio_dir, exist_ok=True)
                     
                     processing_task = Task(
-                        description=f"""Process the video at {video_path} using the ROI data: {detection_result}. 
-                        Crop the video to the optimal region and resize it to exactly 720x1280 pixels (9:16 aspect ratio). 
-                        Preserve audio quality and optimize for social media playback. Save to {output_path}.""",
+                        description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio). 
+                        Maintain aspect ratio with padding if needed. Preserve audio quality and optimize for social media playback. 
+                        Save to {unaudio_output_path}.""",
                         agent=self.processing_agent,
                         expected_output="JSON object with processing results and output file information"
                     )
@@ -1020,11 +785,21 @@ class VideoReelConverter:
                     processing_data = json.loads(str(processing_result))
                     
                     if processing_data.get("success"):
+                        # Log that the scaled video has been saved
+                        logger.info(f"✅ SCALED VIDEO SAVED: {unaudio_output_path}")
+                        logger.info(f"🎬 You can now check the video quality at: {unaudio_output_path}")
+                        
+                        # For no-audio mode, copy unaudio to final output
+                        final_output_filename = f"reel_{video_data['id']}_{query.replace(' ', '_')}.mp4"
+                        final_output_path = os.path.join(self.output_dir, final_output_filename)
+                        import shutil
+                        shutil.copy2(unaudio_output_path, final_output_path)
+                        
                         result = {
                             "original_video": video_data,
-                            "detection_result": json.loads(str(detection_result)),
                             "processing_result": processing_data,
-                            "output_file": output_path,
+                            "unaudio_file": unaudio_output_path,
+                            "output_file": final_output_path,
                             "photographer_credit": f"Video by {video_data['photographer']} on Pexels"
                         }
                         results.append(result)
@@ -1084,8 +859,7 @@ def main():
             print(f"  Original: {result['original_video']['width']}x{result['original_video']['height']}")
             print(f"  Duration: {result['original_video']['duration']} seconds")
             print(f"  Photographer: {result['photographer_credit']}")
-            print(f"  Objects detected: {result['detection_result']['detections_count']}")
-            print(f"  Smart cropping: {'Yes' if result['detection_result']['roi_detected'] else 'Center crop'}")
+            print(f"  Processing: {result['processing_result']['processing_method']}")
             print(f"  Output file: {result['output_file']}")
             print(f"  Final resolution: {result['processing_result']['final_resolution']}")
         
