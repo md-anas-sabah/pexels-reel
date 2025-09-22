@@ -187,9 +187,9 @@ class ObjectDetectionTool(BaseTool):
                     x_max = max([x + w for x, y, w, h in detections])
                     y_max = max([y + h for x, y, w, h in detections])
                     
-                    # Add padding
-                    padding_x = (x_max - x_min) * 0.2
-                    padding_y = (y_max - y_min) * 0.2
+                    # Add generous padding to reduce cropping
+                    padding_x = (x_max - x_min) * 0.8  # Increased from 0.2 to 0.8
+                    padding_y = (y_max - y_min) * 0.8  # Increased from 0.2 to 0.8
                     
                     roi_x = max(0, int(x_min - padding_x))
                     roi_y = max(0, int(y_min - padding_y))
@@ -207,20 +207,27 @@ class ObjectDetectionTool(BaseTool):
                 roi_w = int(np.median([roi[2] for roi in roi_candidates]))
                 roi_h = int(np.median([roi[3] for roi in roi_candidates]))
                 
-                # Ensure the ROI maintains a reasonable aspect ratio for 9:16 conversion
-                target_aspect = 9.0 / 16.0
+                # Instead of forcing exact 9:16, be more flexible with aspect ratio
+                target_aspect = 9.0 / 16.0  # 0.5625
                 current_aspect = roi_w / roi_h
                 
-                if current_aspect > target_aspect:
-                    # Too wide, adjust width
-                    new_width = int(roi_h * target_aspect)
-                    roi_x = roi_x + (roi_w - new_width) // 2
-                    roi_w = new_width
-                else:
-                    # Too tall, adjust height
-                    new_height = int(roi_w / target_aspect)
-                    roi_y = roi_y + (roi_h - new_height) // 2
-                    roi_h = new_height
+                # Only adjust if the aspect ratio is very different (±30% tolerance)
+                aspect_tolerance = 0.3
+                aspect_diff = abs(current_aspect - target_aspect) / target_aspect
+                
+                if aspect_diff > aspect_tolerance:
+                    if current_aspect > target_aspect * 1.3:
+                        # Too wide, adjust width but keep more content
+                        new_width = int(roi_h * target_aspect * 1.2)  # 20% wider than target
+                        if new_width < roi_w:
+                            roi_x = roi_x + (roi_w - new_width) // 2
+                            roi_w = new_width
+                    elif current_aspect < target_aspect * 0.7:
+                        # Too tall, adjust height but keep more content
+                        new_height = int(roi_w / (target_aspect * 0.8))  # 20% shorter than target
+                        if new_height < roi_h:
+                            roi_y = roi_y + (roi_h - new_height) // 2
+                            roi_h = new_height
                 
                 # Ensure ROI is within frame bounds
                 roi_x = max(0, min(roi_x, frame_width - roi_w))
@@ -239,11 +246,18 @@ class ObjectDetectionTool(BaseTool):
                     "detections_count": len(roi_candidates)
                 })
             else:
-                # No objects detected, use center crop
+                # No objects detected, use smart center crop with less aggressive cropping
                 target_aspect = 9.0 / 16.0
-                if frame_width / frame_height > target_aspect:
-                    # Video is too wide
-                    crop_width = int(frame_height * target_aspect)
+                current_aspect = frame_width / frame_height
+                
+                # Use 80% of the optimal crop to preserve more content
+                conservative_factor = 0.8
+                
+                if current_aspect > target_aspect:
+                    # Video is too wide - crop width but preserve more content
+                    ideal_crop_width = int(frame_height * target_aspect)
+                    crop_width = int(ideal_crop_width / conservative_factor)
+                    crop_width = min(crop_width, frame_width)  # Don't exceed frame width
                     crop_x = (frame_width - crop_width) // 2
                     return json.dumps({
                         "roi_detected": False,
@@ -256,8 +270,10 @@ class ObjectDetectionTool(BaseTool):
                         "detections_count": 0
                     })
                 else:
-                    # Video is too tall or correct aspect
-                    crop_height = int(frame_width / target_aspect)
+                    # Video is too tall - crop height but preserve more content
+                    ideal_crop_height = int(frame_width / target_aspect)
+                    crop_height = int(ideal_crop_height / conservative_factor)
+                    crop_height = min(crop_height, frame_height)  # Don't exceed frame height
                     crop_y = (frame_height - crop_height) // 2
                     return json.dumps({
                         "roi_detected": False,
@@ -423,10 +439,17 @@ class FalTTSGenerationTool(BaseTool):
     def _run(self, text_to_speak: str) -> str:
         """Generate speech using Orpheus TTS"""
         try:
+            # Validate input
+            if not text_to_speak or not isinstance(text_to_speak, str):
+                return json.dumps({
+                    "success": False,
+                    "error": "Invalid text input for TTS",
+                    "type": "tts"
+                })
+                
             logger.info(f"Generating TTS for text: '{text_to_speak[:50]}...'")
             
-            
-            # Call Orpheus TTS via fal_client
+            # Direct Fal API call using the correct format from documentation
             result = fal_client.subscribe(
                 "fal-ai/orpheus-tts",
                 arguments={
@@ -437,8 +460,11 @@ class FalTTSGenerationTool(BaseTool):
                 }
             )
             
+            logger.info(f"TTS API response: {result}")
+            
             if result and 'audio' in result:
                 audio_url = result['audio']['url']
+                logger.info(f"TTS generated successfully: {audio_url}")
                 return json.dumps({
                     "success": True,
                     "audio_url": audio_url,
@@ -451,8 +477,10 @@ class FalTTSGenerationTool(BaseTool):
                 return json.dumps({
                     "success": False,
                     "error": "No audio URL returned from Orpheus TTS",
+                    "result": result,
                     "type": "tts"
                 })
+            
                 
         except Exception as e:
             logger.error(f"Error generating TTS: {e}")
@@ -478,15 +506,30 @@ class AudioMixingTool(BaseTool):
             with open(temp_audio_path, 'wb') as f:
                 f.write(response.content)
             
-            # FFmpeg command for mixing audio with video
-            cmd = [
-                "ffmpeg", "-i", video_path, "-i", temp_audio_path,
-                "-filter_complex", "[1:a]volume=0.3[a1];[0:a][a1]amix=inputs=2:duration=first",
-                "-c:v", "copy",  # Copy video without re-encoding
-                "-c:a", "aac", "-b:a", "128k",
-                "-shortest",  # Match the duration of the shorter stream
-                "-y", output_path
-            ]
+            # Check if video has audio stream first
+            probe_cmd = ["ffprobe", "-v", "quiet", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            has_video_audio = bool(probe_result.stdout.strip())
+            
+            if has_video_audio:
+                # Video has audio - mix both audio streams
+                cmd = [
+                    "ffmpeg", "-i", video_path, "-i", temp_audio_path,
+                    "-filter_complex", "[1:a]volume=0.3[a1];[0:a][a1]amix=inputs=2:duration=first",
+                    "-c:v", "copy",  # Copy video without re-encoding
+                    "-c:a", "aac", "-b:a", "128k",
+                    "-shortest",  # Match the duration of the shorter stream
+                    "-y", output_path
+                ]
+            else:
+                # Video has no audio - just add the background music
+                cmd = [
+                    "ffmpeg", "-i", video_path, "-i", temp_audio_path,
+                    "-c:v", "copy",  # Copy video without re-encoding
+                    "-c:a", "aac", "-b:a", "128k",
+                    "-shortest",  # Match the duration of the shorter stream
+                    "-y", output_path
+                ]
             
             logger.info(f"Mixing audio with command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -756,54 +799,40 @@ class VideoReelConverter:
             audio_results = []
             
             if audio_options and self.audio_agent:
-                # Generate music if requested
+                # Generate music if requested - using direct API call to bypass CrewAI issues
                 if audio_options.get('music', False):
                     music_style = audio_options.get('music_style', 'upbeat energetic')
-                    music_task = Task(
-                        description=f"""Use the fal_music_generation tool with this exact prompt text: 
-                        "{music_style} instrumental music for {query} video reel suitable for social media"
-                        
-                        Call the tool with parameter: prompt_text = "{music_style} instrumental music for {query} video reel suitable for social media" """,
-                        agent=self.audio_agent,
-                        expected_output="JSON object with generated music URL and metadata"
-                    )
+                    prompt_text = f"{music_style} instrumental music for {query} video reel suitable for social media"
                     
-                    music_crew = Crew(
-                        agents=[self.audio_agent],
-                        tasks=[music_task],
-                        process=Process.sequential,
-                        verbose=True
-                    )
-                    
-                    music_result = music_crew.kickoff()
-                    music_data = json.loads(str(music_result))
-                    if music_data.get("success"):
-                        audio_results.append(music_data)
+                    # Direct music generation bypassing CrewAI to avoid parameter issues
+                    logger.info(f"Generating music directly: {prompt_text}")
+                    try:
+                        music_tool = FalMusicGenerationTool(self.fal_key)
+                        music_result = music_tool._run(prompt_text)
+                        music_data = json.loads(music_result)
+                        if music_data.get("success"):
+                            audio_results.append(music_data)
+                        logger.info(f"Direct music result: {music_result}")
+                    except Exception as e:
+                        logger.error(f"Direct music generation failed: {e}")
                 
                 # Generate voice-over if requested
                 if audio_options.get('voice', False) and audio_options.get('voice_text'):
                     voice_text = audio_options['voice_text']
                     voice_style = audio_options.get('voice_style', 'neutral')
                     
-                    voice_task = Task(
-                        description=f"""Use the fal_tts_generation tool with this exact text: "{voice_text}"
-                        
-                        Call the tool with parameter: text_to_speak = "{voice_text}" """,
-                        agent=self.audio_agent,
-                        expected_output="JSON object with generated voice URL and metadata"
-                    )
                     
-                    voice_crew = Crew(
-                        agents=[self.audio_agent],
-                        tasks=[voice_task],
-                        process=Process.sequential,
-                        verbose=True
-                    )
-                    
-                    voice_result = voice_crew.kickoff()
-                    voice_data = json.loads(str(voice_result))
-                    if voice_data.get("success"):
-                        audio_results.append(voice_data)
+                    # Direct TTS generation bypassing CrewAI to avoid parameter issues
+                    logger.info(f"Generating TTS directly: {voice_text}")
+                    try:
+                        tts_tool = FalTTSGenerationTool(self.fal_key)
+                        voice_result = tts_tool._run(voice_text)
+                        voice_data = json.loads(voice_result)
+                        if voice_data.get("success"):
+                            audio_results.append(voice_data)
+                        logger.info(f"Direct TTS result: {voice_result}")
+                    except Exception as e:
+                        logger.error(f"Direct TTS generation failed: {e}")
                 
                 # Mix audio with video if we have any audio
                 if audio_results:
