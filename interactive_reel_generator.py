@@ -22,6 +22,10 @@ class UserPreferences:
     mood: str
     duration_preference: str
     style: str
+    audio_option: str
+    music_style: Optional[str] = None
+    voice_style: Optional[str] = None
+    voice_text: Optional[str] = None
     custom_query: Optional[str] = None
 
 class ReelGeneratorUI:
@@ -98,6 +102,30 @@ class ReelGeneratorUI:
             "3": {"name": "Social Media Ready", "style": "social"},
             "4": {"name": "Cinematic", "style": "cinematic"}
         }
+        
+        self.audio_options = {
+            "1": {"name": "No Audio (Video only)", "option": "none"},
+            "2": {"name": "Background Music only", "option": "music"},
+            "3": {"name": "Voice Narration only", "option": "voice"}, 
+            "4": {"name": "Music + Voice Narration", "option": "both"}
+        }
+        
+        self.music_styles = {
+            "1": {"name": "Upbeat & Energetic", "style": "upbeat energetic electronic"},
+            "2": {"name": "Calm & Peaceful", "style": "calm peaceful ambient"},
+            "3": {"name": "Cinematic & Epic", "style": "cinematic epic orchestral"},
+            "4": {"name": "Corporate & Professional", "style": "corporate professional clean"},
+            "5": {"name": "Hip-Hop & Urban", "style": "hip-hop urban beat"},
+            "6": {"name": "Pop & Catchy", "style": "pop catchy uplifting"}
+        }
+        
+        self.voice_styles = {
+            "1": {"name": "Professional Narrator", "style": "professional"},
+            "2": {"name": "Friendly & Casual", "style": "friendly"},
+            "3": {"name": "Energetic & Excited", "style": "energetic"},
+            "4": {"name": "Calm & Soothing", "style": "calm"},
+            "5": {"name": "Authoritative", "style": "authoritative"}
+        }
 
     def display_welcome(self):
         """Welcome message"""
@@ -144,6 +172,38 @@ class ReelGeneratorUI:
         print("-" * 20)
         for key, style in self.styles.items():
             print(f"{key}. {style['name']}")
+
+    def display_audio_options(self):
+        """Display audio options"""
+        print("\n🎵 AUDIO OPTIONS:")
+        print("-" * 25)
+        for key, audio in self.audio_options.items():
+            print(f"{key}. {audio['name']}")
+
+    def display_music_styles(self):
+        """Display music style options"""
+        print("\n🎼 MUSIC STYLE:")
+        print("-" * 20)
+        for key, music in self.music_styles.items():
+            print(f"{key}. {music['name']}")
+
+    def display_voice_styles(self):
+        """Display voice style options"""
+        print("\n🎤 VOICE STYLE:")
+        print("-" * 20)
+        for key, voice in self.voice_styles.items():
+            print(f"{key}. {voice['name']}")
+
+    def get_voice_text(self) -> str:
+        """Get custom voice text from user"""
+        print("\n📝 VOICE NARRATION TEXT:")
+        print("-" * 30)
+        print("Examples:")
+        print("• 'Discover amazing nature views in this beautiful location'")
+        print("• 'Transform your daily routine with these simple tips'")
+        print("• 'Experience the future of technology today'")
+        text = input("Enter your narration text: ").strip()
+        return text if text else "Check out this amazing video content!"
 
     def get_user_input(self, prompt: str, valid_options: List[str]) -> str:
         """Get valid user input"""
@@ -198,10 +258,25 @@ class ReelGeneratorUI:
         mood_name = self.moods[preferences.mood]['name']
         duration_name = self.duration_preferences[preferences.duration_preference]['name']
         style_name = self.styles[preferences.style]['name']
+        audio_name = self.audio_options[preferences.audio_option]['name']
         
         print(f"🎭 Mood: {mood_name}")
         print(f"⏱️  Duration: {duration_name}")
         print(f"🎨 Style: {style_name}")
+        print(f"🎵 Audio: {audio_name}")
+        
+        # Show specific audio preferences
+        if preferences.music_style:
+            music_name = self.music_styles[preferences.music_style]['name']
+            print(f"🎼 Music Style: {music_name}")
+        
+        if preferences.voice_style:
+            voice_name = self.voice_styles[preferences.voice_style]['name']
+            print(f"🎤 Voice Style: {voice_name}")
+            
+        if preferences.voice_text:
+            print(f"📝 Narration: '{preferences.voice_text[:50]}{'...' if len(preferences.voice_text) > 50 else ''}'")
+        
         print(f"🔍 Search Query: '{search_query}'")
         print("="*60)
 
@@ -256,6 +331,29 @@ class ReelGeneratorUI:
             valid_styles = list(self.styles.keys())
             style_choice = self.get_user_input("Select style number", valid_styles)
             
+            # Get audio options
+            self.display_audio_options()
+            valid_audio = list(self.audio_options.keys())
+            audio_choice = self.get_user_input("Select audio option", valid_audio)
+            
+            # Get audio-specific preferences
+            music_style_choice = None
+            voice_style_choice = None
+            voice_text_input = None
+            
+            audio_option = self.audio_options[audio_choice]["option"]
+            
+            if audio_option in ["music", "both"]:
+                self.display_music_styles()
+                valid_music = list(self.music_styles.keys())
+                music_style_choice = self.get_user_input("Select music style", valid_music)
+            
+            if audio_option in ["voice", "both"]:
+                self.display_voice_styles()
+                valid_voice = list(self.voice_styles.keys())
+                voice_style_choice = self.get_user_input("Select voice style", valid_voice)
+                voice_text_input = self.get_voice_text()
+            
             # Create preferences object
             preferences = UserPreferences(
                 category=category_choice,
@@ -263,6 +361,10 @@ class ReelGeneratorUI:
                 mood=mood_choice,
                 duration_preference=duration_choice,
                 style=style_choice,
+                audio_option=audio_choice,
+                music_style=music_style_choice,
+                voice_style=voice_style_choice,
+                voice_text=voice_text_input,
                 custom_query=custom_search
             )
             
@@ -376,42 +478,35 @@ class ReelGeneratorUI:
             # Auto-proceed without confirmation
             print("\n🚀 Starting video search and conversion...")
             
-            # Initialize converter
-            converter = VideoReelConverter(self.pexels_api_key)
+            # Initialize converter with audio support
+            fal_key = os.getenv('FAL_KEY')
+            converter = VideoReelConverter(self.pexels_api_key, fal_key)
+            
+            # Prepare audio options for converter
+            audio_options = None
+            audio_option_type = self.audio_options[preferences.audio_option]["option"]
+            
+            if audio_option_type != "none":
+                audio_options = {
+                    "music": audio_option_type in ["music", "both"],
+                    "voice": audio_option_type in ["voice", "both"]
+                }
+                
+                if preferences.music_style:
+                    audio_options["music_style"] = self.music_styles[preferences.music_style]["style"]
+                
+                if preferences.voice_style and preferences.voice_text:
+                    audio_options["voice_style"] = self.voice_styles[preferences.voice_style]["style"]
+                    audio_options["voice_text"] = preferences.voice_text
+                
+                print(f"🎵 Audio enabled: {audio_option_type}")
+            else:
+                print("🔇 No audio will be added")
             
             try:
-                # Search for videos (get more options)
+                # Use the new audio-enabled conversion method
                 print(f"🔍 Searching for: '{search_query}'")
-                
-                # First get the search results without processing
-                search_crew = converter._setup_search_crew(search_query, per_page=5)
-                search_result = search_crew.kickoff()
-                videos_data = json.loads(str(search_result))
-                
-                if not videos_data:
-                    print("❌ No videos found. Try different specifications.")
-                    return
-                
-                # Filter by duration preference
-                duration_filter = self.duration_preferences[preferences.duration_preference]['filter']
-                filtered_videos = self.filter_videos_by_duration(videos_data, duration_filter)
-                
-                # Auto-select best videos
-                selected = self.auto_select_videos(filtered_videos)
-                if not selected:
-                    print("👋 No suitable videos found!")
-                    return
-                
-                # Convert selected videos
-                videos_to_convert = selected['videos']
-                print(f"\n🎬 Converting {len(videos_to_convert)} video(s)...")
-                
-                results = []
-                for i, video_data in enumerate(videos_to_convert, 1):
-                    print(f"\n📹 Processing video {i}/{len(videos_to_convert)}: {video_data['id']}")
-                    result = converter._process_single_video(video_data, search_query)
-                    if result:
-                        results.append(result)
+                results = converter.convert_to_reel_with_audio(search_query, audio_options, per_page=1)
                 
                 # Display results
                 self.display_results(results, preferences)
@@ -442,6 +537,16 @@ class ReelGeneratorUI:
             print(f"  📐 Resolution: {result['processing_result']['final_resolution']}")
             print(f"  🎭 Original by: {result['photographer_credit']}")
             print(f"  🎯 Smart cropping: {'Yes' if result['detection_result']['roi_detected'] else 'Center crop'}")
+            
+            # Show audio information if available
+            if result.get('audio_results'):
+                audio_count = len(result['audio_results'])
+                print(f"  🎵 Audio tracks added: {audio_count}")
+                for j, audio in enumerate(result['audio_results'], 1):
+                    audio_type = audio.get('type', 'unknown')
+                    print(f"     {j}. {audio_type.title()}")
+            else:
+                print(f"  🔇 No audio added")
             
             if os.path.exists(result['output_file']):
                 file_size = os.path.getsize(result['output_file']) / (1024 * 1024)
