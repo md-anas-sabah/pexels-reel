@@ -284,13 +284,145 @@ class FalTTSGenerationTool(BaseTool):
                 "type": "tts"
             })
 
+class FalSubtitleGenerationTool(BaseTool):
+    """Tool for generating subtitles from audio using Fal AI Whisper"""
+    name: str = "fal_subtitle_generation"
+    description: str = "Generate word-level subtitles from audio using Fal AI Whisper"
+    
+    def __init__(self, fal_key: str):
+        super().__init__()
+        self._fal_key = fal_key
+        # Configure fal_client with the key
+        os.environ['FAL_KEY'] = fal_key
+    
+    def _run(self, audio_url: str, temp_dir: str) -> str:
+        """Generate subtitles from audio using Fal AI Whisper
+        
+        Args:
+            audio_url: URL to the audio file
+            temp_dir: Directory to save the SRT file
+            
+        Returns:
+            JSON string with subtitle generation results
+        """
+        try:
+            logger.info(f"Generating subtitles for audio: {audio_url}")
+            
+            # Call Fal AI Whisper API
+            result = fal_client.subscribe(
+                "fal-ai/whisper",
+                arguments={
+                    "audio_url": audio_url,
+                    "task": "transcribe",
+                    "chunk_level": "word",  # Word-level timestamps
+                    "version": "3"
+                }
+            )
+            
+            logger.info(f"Whisper transcription completed")
+            
+            if result and 'chunks' in result:
+                # Generate SRT file from chunks
+                srt_filename = f"subtitles_{os.getpid()}.srt"
+                srt_path = os.path.join(temp_dir, srt_filename)
+                
+                # Create SRT content
+                srt_content = self._create_srt_from_chunks(result['chunks'])
+                
+                # Write SRT file
+                with open(srt_path, 'w', encoding='utf-8') as f:
+                    f.write(srt_content)
+                
+                logger.info(f"✅ Subtitles generated: {srt_path}")
+                
+                return json.dumps({
+                    "success": True,
+                    "srt_path": srt_path,
+                    "text": result.get('text', ''),
+                    "word_count": len(result['chunks']) if result['chunks'] else 0,
+                    "type": "subtitles"
+                })
+            else:
+                return json.dumps({
+                    "success": False,
+                    "error": "No chunks returned from Whisper",
+                    "type": "subtitles"
+                })
+                
+        except Exception as e:
+            logger.error(f"Error generating subtitles: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+                "type": "subtitles"
+            })
+    
+    def _create_srt_from_chunks(self, chunks: List[Dict]) -> str:
+        """Create SRT subtitle content from Whisper chunks
+        
+        Args:
+            chunks: List of word chunks with timestamps
+            
+        Returns:
+            SRT formatted subtitle content
+        """
+        srt_content = ""
+        subtitle_index = 1
+        
+        # Group words into subtitle segments (2-4 words per subtitle for readability)
+        words_per_subtitle = 3
+        
+        for i in range(0, len(chunks), words_per_subtitle):
+            # Get word group
+            word_group = chunks[i:i + words_per_subtitle]
+            
+            if not word_group:
+                continue
+            
+            # Get timing from first and last word in group
+            start_time = word_group[0]['timestamp'][0] if word_group[0].get('timestamp') else 0
+            end_time = word_group[-1]['timestamp'][1] if word_group[-1].get('timestamp') else start_time + 1
+            
+            # Combine text from all words in group
+            subtitle_text = ' '.join([word.get('text', '').strip() for word in word_group]).strip()
+            
+            if subtitle_text:
+                # Format timestamps for SRT (HH:MM:SS,mmm)
+                start_srt = self._seconds_to_srt_time(start_time)
+                end_srt = self._seconds_to_srt_time(end_time)
+                
+                # Add SRT entry
+                srt_content += f"{subtitle_index}\n"
+                srt_content += f"{start_srt} --> {end_srt}\n"
+                srt_content += f"{subtitle_text}\n\n"
+                
+                subtitle_index += 1
+        
+        return srt_content
+    
+    def _seconds_to_srt_time(self, seconds: float) -> str:
+        """Convert seconds to SRT time format (HH:MM:SS,mmm)
+        
+        Args:
+            seconds: Time in seconds
+            
+        Returns:
+            SRT formatted time string
+        """
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        milliseconds = int((seconds % 1) * 1000)
+        
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
 class AudioMixingTool(BaseTool):
     """Tool for mixing generated audio with video using FFmpeg"""
     name: str = "audio_mixing"
     description: str = "Mix background music and/or voice-over with video"
     
-    def _run(self, video_path: str, audio_url: str, output_path: str) -> str:
-        """Mix audio with video using FFmpeg"""
+    def _run(self, video_path: str, audio_url: str, output_path: str, srt_path: str = None) -> str:
+        """Mix audio with video using FFmpeg, optionally burning subtitles"""
         try:
             # Download audio file
             temp_audio_path = f"/tmp/temp_audio_{os.getpid()}.mp3"
@@ -300,15 +432,34 @@ class AudioMixingTool(BaseTool):
             with open(temp_audio_path, 'wb') as f:
                 f.write(response.content)
             
-            # Since we remove audio during video processing, video will have no audio
-            # Just add the TTS audio to the silent video
-            cmd = [
-                "ffmpeg", "-i", video_path, "-i", temp_audio_path,
-                "-c:v", "copy",  # Copy video without re-encoding
+            # Build FFmpeg command
+            cmd = ["ffmpeg", "-i", video_path, "-i", temp_audio_path]
+            
+            # Add subtitle filter if SRT file is provided
+            if srt_path and os.path.exists(srt_path):
+                # Escape the SRT path for FFmpeg (handle special characters)
+                srt_path_escaped = srt_path.replace('\\', '/').replace(':', '\\:')
+                
+                # Subtitle filter with mobile-optimized styling
+                subtitle_filter = (
+                    f"subtitles={srt_path_escaped}"
+                    f":force_style='Alignment=2,Fontsize=18,PrimaryColour=&HFFFFFF&,"
+                    f"OutlineColour=&H000000&,BorderStyle=3,Outline=1,Shadow=0.5'"
+                )
+                
+                cmd.extend(["-vf", subtitle_filter])
+                cmd.extend(["-c:v", "libx264", "-preset", "slower", "-crf", "18"])
+                logger.info(f"Adding subtitles from: {srt_path}")
+            else:
+                # No subtitles, copy video without re-encoding
+                cmd.extend(["-c:v", "copy"])
+            
+            # Audio settings
+            cmd.extend([
                 "-c:a", "aac", "-b:a", "128k",
                 "-shortest",  # Match the duration of the shorter stream
                 "-y", output_path
-            ]
+            ])
             
             logger.info(f"Mixing audio with command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -323,7 +474,8 @@ class AudioMixingTool(BaseTool):
                 return json.dumps({
                     "success": True,
                     "output_path": output_path,
-                    "message": "Audio mixed successfully"
+                    "message": "Audio mixed successfully",
+                    "subtitles_burned": srt_path is not None
                 })
             else:
                 error_msg = result.stderr
@@ -360,10 +512,12 @@ class VideoReelConverter:
         if self.fal_key:
             self.music_tool = FalMusicGenerationTool(self.fal_key)
             self.tts_tool = FalTTSGenerationTool(self.fal_key)
+            self.subtitle_tool = FalSubtitleGenerationTool(self.fal_key)
             self.audio_mixing_tool = AudioMixingTool()
         else:
             self.music_tool = None
             self.tts_tool = None
+            self.subtitle_tool = None
             self.audio_mixing_tool = None
             logger.warning("FAL_KEY not provided. Audio generation will be disabled.")
         
@@ -589,6 +743,23 @@ class VideoReelConverter:
                         voice_result = tts_tool._run(voice_text)
                         voice_data = json.loads(voice_result)
                         if voice_data.get("success"):
+                            # Generate subtitles for TTS audio (MANDATORY when TTS is used)
+                            logger.info("🎬 Generating subtitles for TTS audio...")
+                            try:
+                                subtitle_tool = FalSubtitleGenerationTool(self.fal_key)
+                                subtitle_result = subtitle_tool._run(
+                                    audio_url=voice_data['audio_url'],
+                                    temp_dir=self.temp_dir
+                                )
+                                subtitle_data = json.loads(subtitle_result)
+                                if subtitle_data.get("success"):
+                                    voice_data['srt_path'] = subtitle_data['srt_path']
+                                    logger.info(f"✅ Subtitles generated: {subtitle_data['srt_path']}")
+                                else:
+                                    logger.error(f"❌ Subtitle generation failed: {subtitle_data.get('error')}")
+                            except Exception as subtitle_error:
+                                logger.error(f"❌ Subtitle generation error: {subtitle_error}")
+                            
                             audio_results.append(voice_data)
                         logger.info(f"Direct TTS result: {voice_result}")
                     except Exception as e:
@@ -622,10 +793,14 @@ class VideoReelConverter:
                         
                         try:
                             audio_mixing_tool = AudioMixingTool()
+                            # Get SRT path if this is TTS audio with subtitles
+                            srt_path = audio_data.get('srt_path') if audio_data.get('type') == 'tts' else None
+                            
                             mixing_result = audio_mixing_tool._run(
                                 video_path=current_video_path,
                                 audio_url=audio_data['audio_url'],
-                                output_path=output_path
+                                output_path=output_path,
+                                srt_path=srt_path
                             )
                             mixing_data = json.loads(mixing_result)
                             
@@ -991,6 +1166,23 @@ class VideoReelConverter:
                                 voice_result = tts_tool._run(voice_text)
                                 voice_data = json.loads(voice_result)
                                 if voice_data.get("success"):
+                                    # Generate subtitles for multi-clip TTS audio (MANDATORY when TTS is used)
+                                    logger.info("🎬 Generating subtitles for multi-clip TTS audio...")
+                                    try:
+                                        subtitle_tool = FalSubtitleGenerationTool(self.fal_key)
+                                        subtitle_result = subtitle_tool._run(
+                                            audio_url=voice_data['audio_url'],
+                                            temp_dir=self.temp_dir
+                                        )
+                                        subtitle_data = json.loads(subtitle_result)
+                                        if subtitle_data.get("success"):
+                                            voice_data['srt_path'] = subtitle_data['srt_path']
+                                            logger.info(f"✅ Multi-clip subtitles generated: {subtitle_data['srt_path']}")
+                                        else:
+                                            logger.error(f"❌ Multi-clip subtitle generation failed: {subtitle_data.get('error')}")
+                                    except Exception as subtitle_error:
+                                        logger.error(f"❌ Multi-clip subtitle generation error: {subtitle_error}")
+                                    
                                     audio_results.append(voice_data)
                                 logger.info(f"Multi-clip TTS generated successfully")
                             except Exception as e:
@@ -1008,10 +1200,14 @@ class VideoReelConverter:
                                 
                                 try:
                                     audio_mixing_tool = AudioMixingTool()
+                                    # Get SRT path if this is TTS audio with subtitles
+                                    srt_path = audio_data.get('srt_path') if audio_data.get('type') == 'tts' else None
+                                    
                                     mixing_result = audio_mixing_tool._run(
                                         video_path=current_video_path,
                                         audio_url=audio_data['audio_url'],
-                                        output_path=output_path
+                                        output_path=output_path,
+                                        srt_path=srt_path
                                     )
                                     mixing_data = json.loads(mixing_result)
                                     

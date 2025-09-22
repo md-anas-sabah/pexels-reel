@@ -723,9 +723,15 @@ class ReelGeneratorUI:
                 if result.get('audio_results'):
                     audio_count = len(result['audio_results'])
                     print(f"  🎵 Audio tracks added: {audio_count}")
+                    has_subtitles = False
                     for j, audio in enumerate(result['audio_results'], 1):
                         audio_type = audio.get('type', 'unknown')
                         print(f"     {j}. {audio_type.title()}")
+                        if audio.get('srt_path') and audio_type == 'tts':
+                            has_subtitles = True
+                    
+                    if has_subtitles:
+                        print(f"  📝 Subtitles: Synchronized word-by-word")
                 else:
                     print(f"  🔇 No audio added")
                     
@@ -741,9 +747,15 @@ class ReelGeneratorUI:
                 if result.get('audio_results'):
                     audio_count = len(result['audio_results'])
                     print(f"  🎵 Audio tracks added: {audio_count}")
+                    has_subtitles = False
                     for j, audio in enumerate(result['audio_results'], 1):
                         audio_type = audio.get('type', 'unknown')
                         print(f"     {j}. {audio_type.title()}")
+                        if audio.get('srt_path') and audio_type == 'tts':
+                            has_subtitles = True
+                    
+                    if has_subtitles:
+                        print(f"  📝 Subtitles: Synchronized word-by-word")
                 else:
                     print(f"  🔇 No audio added")
             
