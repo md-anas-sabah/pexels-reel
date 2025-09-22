@@ -14,6 +14,7 @@ import json
 from urllib.parse import urlparse
 import subprocess
 from dataclasses import dataclass
+import math
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -436,7 +437,7 @@ class AudioMixingTool(BaseTool):
         
         return (
             f"Fontname={font_name},"
-            "Fontsize=22,"
+            "Fontsize=14,"
             "Bold=1,"
             "PrimaryColour=&HFFFFFF&,"      # White text
             "OutlineColour=&H000000&,"      # Black outline
@@ -444,7 +445,7 @@ class AudioMixingTool(BaseTool):
             "Outline=2,"                    # 2px outline width
             "Shadow=0,"                     # No shadow, for a clean outline
             "Alignment=2,"                  # Bottom-center alignment
-            "MarginV=80"                    # Vertical margin from the bottom
+            "MarginV=50"                    # Vertical margin from the bottom
         )
     
     def _run(self, video_path: str, audio_url: str, output_path: str, srt_path: str = None) -> str:
@@ -609,6 +610,54 @@ class VideoReelConverter:
         except Exception as e:
             logger.error(f"Error downloading video: {e}")
             raise
+
+    def _get_audio_duration(self, audio_url: str) -> float:
+        """Get the exact duration of an audio file from URL
+        
+        Args:
+            audio_url: URL to the audio file
+            
+        Returns:
+            Duration in seconds as float
+        """
+        temp_audio_path = None
+        try:
+            # Download audio to temporary file
+            temp_audio_path = os.path.join(self.temp_dir, f"temp_audio_duration_{os.getpid()}.mp3")
+            
+            response = requests.get(audio_url)
+            response.raise_for_status()
+            
+            with open(temp_audio_path, 'wb') as f:
+                f.write(response.content)
+            
+            # Use ffprobe to get precise duration
+            cmd = [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration", 
+                "-of", "default=noprint_wrappers=1:nokey=1", temp_audio_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                duration_str = result.stdout.strip()
+                duration = float(duration_str)
+                logger.info(f"Audio duration detected: {duration:.2f} seconds")
+                return duration
+            else:
+                logger.error(f"ffprobe error: {result.stderr}")
+                return 0.0
+                
+        except Exception as e:
+            logger.error(f"Error getting audio duration: {e}")
+            return 0.0
+        finally:
+            # Clean up temporary audio file
+            if temp_audio_path and os.path.exists(temp_audio_path):
+                try:
+                    os.remove(temp_audio_path)
+                except:
+                    pass
     
     def _setup_search_crew(self, query: str, per_page: int = 5):
         """Setup search crew for finding videos"""
@@ -974,17 +1023,18 @@ class VideoReelConverter:
         
         Args:
             query: Search query
-            count: Number of videos to fetch (5-7 recommended)
+            count: Number of videos to fetch (dynamically calculated based on audio duration)
             
         Returns:
             List of video data dictionaries
         """
         try:
-            # Clamp count to reasonable range
-            count = max(5, min(count, 7))
+            # Clamp count to reasonable range but allow for longer audio
+            count = max(3, min(count, 15))  # Increased max to 15 for longer audio
             
             search_task = Task(
                 description=f"""Search for {count} high-quality videos on Pexels using the query: "{query}". 
+                Use the pexels_video_search tool with per_page={count} to fetch exactly {count} videos.
                 Focus on videos that would work well for vertical social media content and multi-clip reels. 
                 Return detailed information about each video including download URLs and dimensions.""",
                 agent=self.search_agent,
@@ -1062,12 +1112,70 @@ class VideoReelConverter:
                 # MULTI MODE: Create one reel from multiple video segments
                 logger.info(f"[MULTI MODE] Creating multi-clip reel for query: '{query}'")
                 
-                # Fetch 5-7 videos for multi-clip
-                videos_data = self.fetch_multiple_videos(query, count=6)
+                # Step 1: Generate voice-over first (if requested) to calculate required video length
+                num_clips = 6  # Default number of clips
+                segment_duration = 3.5  # Duration of each video segment in seconds
+                voice_data = None
+                
+                if audio_options and audio_options.get('voice', False) and audio_options.get('voice_text') and self.audio_agent:
+                    voice_text = audio_options['voice_text']
+                    logger.info(f"[MULTI MODE] Generating voice-over first to determine video length...")
+                    
+                    try:
+                        tts_tool = FalTTSGenerationTool(self.fal_key)
+                        voice_result = tts_tool._run(voice_text)
+                        voice_data = json.loads(voice_result)
+                        if voice_data.get("success"):
+                            # Generate subtitles for TTS audio
+                            logger.info("🎬 Generating subtitles for TTS audio...")
+                            try:
+                                subtitle_tool = FalSubtitleGenerationTool(self.fal_key)
+                                subtitle_result = subtitle_tool._run(
+                                    audio_url=voice_data['audio_url'],
+                                    temp_dir=self.temp_dir
+                                )
+                                subtitle_data = json.loads(subtitle_result)
+                                if subtitle_data.get("success"):
+                                    voice_data['srt_path'] = subtitle_data['srt_path']
+                                    logger.info(f"✅ Subtitles generated: {subtitle_data['srt_path']}")
+                                else:
+                                    logger.error(f"❌ Subtitle generation failed: {subtitle_data.get('error')}")
+                            except Exception as subtitle_error:
+                                logger.error(f"❌ Subtitle generation error: {subtitle_error}")
+                            
+                            logger.info(f"✅ Voice-over generated successfully")
+                        else:
+                            logger.error(f"❌ Voice-over generation failed: {voice_data.get('error')}")
+                    except Exception as e:
+                        logger.error(f"❌ Voice-over generation error: {e}")
+                
+                # Step 2: Calculate number of clips based on audio duration
+                if voice_data and voice_data.get('success'):
+                    try:
+                        audio_duration = self._get_audio_duration(voice_data['audio_url'])
+                        if audio_duration > 0:
+                            num_clips = math.ceil(audio_duration / segment_duration)
+                            logger.info(f"Audio duration is {audio_duration:.2f}s. Calculated {num_clips} video clips needed.")
+                    except Exception as e:
+                        logger.error(f"Could not get audio duration, falling back to default: {e}")
+                
+                # Step 3: Fetch dynamically calculated number of videos
+                videos_data = self.fetch_multiple_videos(query, count=num_clips)
                 
                 if len(videos_data) < 2:
                     logger.error("Need at least 2 videos for multi-clip reel")
                     return []
+                
+                # Step 3.5: Adjust segment duration if fewer videos available than calculated
+                actual_clips = len(videos_data)
+                if voice_data and voice_data.get('success') and actual_clips < num_clips:
+                    try:
+                        audio_duration = self._get_audio_duration(voice_data['audio_url'])
+                        if audio_duration > 0:
+                            segment_duration = audio_duration / actual_clips
+                            logger.info(f"Adjusted segment duration to {segment_duration:.2f}s to match {actual_clips} available videos")
+                    except Exception as e:
+                        logger.error(f"Could not adjust segment duration: {e}")
                 
                 logger.info(f"[MULTI MODE] Processing {len(videos_data)} videos for multi-clip reel")
                 
@@ -1124,9 +1232,8 @@ class VideoReelConverter:
                     logger.error("Failed to process enough clips for multi-clip reel")
                     return []
                 
-                # Step 2: Trim 3-4 second segments from each processed clip
+                # Step 4: Trim segments from each processed clip using calculated duration
                 trimmed_clips = []
-                segment_duration = 3.5  # 3.5 seconds per segment
                 
                 for idx, clip_info in enumerate(processed_clips):
                     try:
@@ -1151,7 +1258,7 @@ class VideoReelConverter:
                     logger.error("Failed to trim enough segments for multi-clip reel")
                     return []
                 
-                # Step 3: Concatenate trimmed segments
+                # Step 5: Concatenate trimmed segments
                 concat_filename = f"multi_reel_{query.replace(' ', '_')}_concat.mp4"
                 concat_dir = os.path.join(self.output_dir, "unaudio_video")
                 concat_path = os.path.join(concat_dir, concat_filename)
@@ -1159,7 +1266,7 @@ class VideoReelConverter:
                 if self.concat_clips(trimmed_clips, concat_path):
                     logger.info(f"✅ Multi-clip video created: {concat_path}")
                     
-                    # Step 4: Apply audio if requested
+                    # Step 6: Apply audio if requested
                     final_output_filename = f"multi_reel_{query.replace(' ', '_')}.mp4"
                     final_output_path = os.path.join(self.output_dir, final_output_filename)
                     
@@ -1181,36 +1288,10 @@ class VideoReelConverter:
                             except Exception as e:
                                 logger.error(f"Multi-clip music generation failed: {e}")
                         
-                        # Generate voice-over if requested
-                        if audio_options.get('voice', False) and audio_options.get('voice_text'):
-                            voice_text = audio_options['voice_text']
-                            
-                            try:
-                                tts_tool = FalTTSGenerationTool(self.fal_key)
-                                voice_result = tts_tool._run(voice_text)
-                                voice_data = json.loads(voice_result)
-                                if voice_data.get("success"):
-                                    # Generate subtitles for multi-clip TTS audio (MANDATORY when TTS is used)
-                                    logger.info("🎬 Generating subtitles for multi-clip TTS audio...")
-                                    try:
-                                        subtitle_tool = FalSubtitleGenerationTool(self.fal_key)
-                                        subtitle_result = subtitle_tool._run(
-                                            audio_url=voice_data['audio_url'],
-                                            temp_dir=self.temp_dir
-                                        )
-                                        subtitle_data = json.loads(subtitle_result)
-                                        if subtitle_data.get("success"):
-                                            voice_data['srt_path'] = subtitle_data['srt_path']
-                                            logger.info(f"✅ Multi-clip subtitles generated: {subtitle_data['srt_path']}")
-                                        else:
-                                            logger.error(f"❌ Multi-clip subtitle generation failed: {subtitle_data.get('error')}")
-                                    except Exception as subtitle_error:
-                                        logger.error(f"❌ Multi-clip subtitle generation error: {subtitle_error}")
-                                    
-                                    audio_results.append(voice_data)
-                                logger.info(f"Multi-clip TTS generated successfully")
-                            except Exception as e:
-                                logger.error(f"Multi-clip TTS generation failed: {e}")
+                        # Use pre-generated voice-over if available
+                        if voice_data and voice_data.get('success'):
+                            audio_results.append(voice_data)
+                            logger.info(f"Using pre-generated voice-over for multi-clip reel")
                         
                         # Mix audio with concatenated video
                         if audio_results:
