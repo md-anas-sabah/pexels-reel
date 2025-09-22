@@ -731,7 +731,7 @@ class ReelGeneratorUI:
                             has_subtitles = True
                     
                     if has_subtitles:
-                        print(f"  📝 Subtitles: Synchronized word-by-word")
+                        print(f"  📝 Subtitles: Clean word-sync (white text, black stroke)")
                 else:
                     print(f"  🔇 No audio added")
                     
@@ -755,7 +755,7 @@ class ReelGeneratorUI:
                             has_subtitles = True
                     
                     if has_subtitles:
-                        print(f"  📝 Subtitles: Synchronized word-by-word")
+                        print(f"  📝 Subtitles: Clean word-sync (white text, black stroke)")
                 else:
                     print(f"  🔇 No audio added")
             

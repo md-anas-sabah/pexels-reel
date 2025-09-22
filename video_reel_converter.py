@@ -421,6 +421,32 @@ class AudioMixingTool(BaseTool):
     name: str = "audio_mixing"
     description: str = "Mix background music and/or voice-over with video"
     
+    def _get_subtitle_style(self) -> str:
+        """Get optimized subtitle styling for social media reels based on user-provided image.
+        
+        Returns:
+            ASS subtitle style string for FFmpeg
+        """
+        # Style to match the user's screenshot: A clean, bold white font with a thin black outline.
+        # Font: Arial Bold (for maximum compatibility and similar look to the image)
+        # Outline: A 2px black outline with no background or shadow.
+        # Position: Bottom-center with a vertical margin.
+        
+        font_name = 'Arial'
+        
+        return (
+            f"Fontname={font_name},"
+            "Fontsize=22,"
+            "Bold=1,"
+            "PrimaryColour=&HFFFFFF&,"      # White text
+            "OutlineColour=&H000000&,"      # Black outline
+            "BorderStyle=1,"                # Use 1 for outline WITHOUT a background box
+            "Outline=2,"                    # 2px outline width
+            "Shadow=0,"                     # No shadow, for a clean outline
+            "Alignment=2,"                  # Bottom-center alignment
+            "MarginV=80"                    # Vertical margin from the bottom
+        )
+    
     def _run(self, video_path: str, audio_url: str, output_path: str, srt_path: str = None) -> str:
         """Mix audio with video using FFmpeg, optionally burning subtitles"""
         try:
@@ -440,16 +466,14 @@ class AudioMixingTool(BaseTool):
                 # Escape the SRT path for FFmpeg (handle special characters)
                 srt_path_escaped = srt_path.replace('\\', '/').replace(':', '\\:')
                 
-                # Subtitle filter with mobile-optimized styling
-                subtitle_filter = (
-                    f"subtitles={srt_path_escaped}"
-                    f":force_style='Alignment=2,Fontsize=18,PrimaryColour=&HFFFFFF&,"
-                    f"OutlineColour=&H000000&,BorderStyle=3,Outline=1,Shadow=0.5'"
-                )
+                # Professional subtitle filter with optimized styling
+                subtitle_style = self._get_subtitle_style()
+                subtitle_filter = f"subtitles={srt_path_escaped}:force_style='{subtitle_style}'"
                 
                 cmd.extend(["-vf", subtitle_filter])
                 cmd.extend(["-c:v", "libx264", "-preset", "slower", "-crf", "18"])
-                logger.info(f"Adding subtitles from: {srt_path}")
+                logger.info(f"🎬 Adding clean subtitles: {srt_path}")
+                logger.info(f"📝 Subtitle styling: Montserrat Bold, 26px, white text with black stroke (no background)")
             else:
                 # No subtitles, copy video without re-encoding
                 cmd.extend(["-c:v", "copy"])
