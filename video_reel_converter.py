@@ -673,21 +673,125 @@ class VideoReelConverter:
             logger.error(f"Error processing video with audio {video_data.get('id', 'unknown')}: {e}")
             return None
 
-    def convert_to_reel_with_audio(self, query: str, audio_options: Dict = None, per_page: int = 3) -> List[Dict]:
-        """Convert videos to reel format with optional audio generation"""
-        try:
-            results = []
+    def trim_segment(self, video_path: str, start_time: float, duration: float, output_path: str) -> bool:
+        """Trim a segment from a video using FFmpeg
+        
+        Args:
+            video_path: Path to input video
+            start_time: Start time in seconds
+            duration: Duration of segment in seconds
+            output_path: Path for trimmed segment
             
-            # Task 1: Search for videos
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            cmd = [
+                "ffmpeg", "-i", video_path,
+                "-ss", str(start_time),  # Start time
+                "-t", str(duration),     # Duration
+                "-c:v", "libx264",       # Video codec
+                "-preset", "faster",     # Faster preset for trimming
+                "-crf", "18",           # High quality
+                "-c:a", "aac",          # Audio codec (keep audio for trimming)
+                "-y", output_path
+            ]
+            
+            logger.info(f"Trimming segment: {start_time}s-{start_time+duration}s from {video_path}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logger.info(f"✅ Segment trimmed: {output_path}")
+                return True
+            else:
+                logger.error(f"❌ Trimming failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error trimming segment: {e}")
+            return False
+
+    def concat_clips(self, clip_paths: List[str], output_path: str) -> bool:
+        """Concatenate multiple video clips using FFmpeg concat filter
+        
+        Args:
+            clip_paths: List of paths to video clips
+            output_path: Path for concatenated output
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if len(clip_paths) < 2:
+                logger.error("Need at least 2 clips to concatenate")
+                return False
+            
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            # Build FFmpeg command with concat filter (VIDEO ONLY - no audio)
+            inputs = []
+            filter_complex = []
+            
+            # Add input files
+            for i, clip_path in enumerate(clip_paths):
+                inputs.extend(["-i", clip_path])
+                filter_complex.append(f"[{i}:v]")
+            
+            # Create concat filter for video only (since trimmed clips have no audio)
+            concat_filter = f"{''.join(filter_complex)}concat=n={len(clip_paths)}:v=1:a=0[v]"
+            
+            cmd = [
+                "ffmpeg"
+            ] + inputs + [
+                "-filter_complex", concat_filter,
+                "-map", "[v]",  # Only map video, no audio
+                "-c:v", "libx264",
+                "-preset", "slower",    # High quality for final output
+                "-crf", "18",
+                "-pix_fmt", "yuv420p",
+                "-profile:v", "high", "-level", "4.0",
+                "-movflags", "+faststart",
+                "-y", output_path
+            ]
+            
+            logger.info(f"Concatenating {len(clip_paths)} video-only clips")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logger.info(f"✅ Clips concatenated: {output_path}")
+                return True
+            else:
+                logger.error(f"❌ Concatenation failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error concatenating clips: {e}")
+            return False
+
+    def fetch_multiple_videos(self, query: str, count: int = 6) -> List[Dict]:
+        """Fetch multiple videos for multi-clip reel creation
+        
+        Args:
+            query: Search query
+            count: Number of videos to fetch (5-7 recommended)
+            
+        Returns:
+            List of video data dictionaries
+        """
+        try:
+            # Clamp count to reasonable range
+            count = max(5, min(count, 7))
+            
             search_task = Task(
-                description=f"""Search for {per_page} high-quality videos on Pexels using the query: "{query}". 
-                Focus on videos that would work well for vertical social media content. Return detailed 
-                information about each video including download URLs and dimensions.""",
+                description=f"""Search for {count} high-quality videos on Pexels using the query: "{query}". 
+                Focus on videos that would work well for vertical social media content and multi-clip reels. 
+                Return detailed information about each video including download URLs and dimensions.""",
                 agent=self.search_agent,
                 expected_output="JSON list of video information including IDs, dimensions, download URLs, and metadata"
             )
             
-            # Execute search
             search_crew = Crew(
                 agents=[self.search_agent],
                 tasks=[search_task],
@@ -698,23 +802,266 @@ class VideoReelConverter:
             search_result = search_crew.kickoff()
             videos_data = json.loads(str(search_result))
             
-            logger.info(f"Found {len(videos_data)} videos for processing")
+            logger.info(f"Fetched {len(videos_data)} videos for multi-clip reel")
+            return videos_data
             
-            # Process each video with audio options
-            for idx, video_data in enumerate(videos_data):
-                try:
-                    logger.info(f"Processing video {idx + 1}/{len(videos_data)}: ID {video_data['id']}")
-                    
-                    result = self._process_single_video_with_audio(video_data, query, audio_options)
-                    if result:
-                        results.append(result)
-                        logger.info(f"Successfully processed video {video_data['id']}")
-                    else:
-                        logger.error(f"Failed to process video {video_data['id']}")
+        except Exception as e:
+            logger.error(f"Error fetching multiple videos: {e}")
+            return []
+
+    def convert_to_reel_with_audio(self, query: str, audio_options: Dict = None, per_page: int = 3, mode: str = 'single') -> List[Dict]:
+        """Convert videos to reel format with optional audio generation
+        
+        Args:
+            query: Search query for videos
+            audio_options: Audio generation options
+            per_page: Number of videos to fetch
+            mode: 'single' for one video or 'multi' for multi-clip reel
+        """
+        try:
+            results = []
+            
+            if mode == 'single':
+                # SINGLE MODE: Original workflow - process individual videos
+                search_task = Task(
+                    description=f"""Search for {per_page} high-quality videos on Pexels using the query: "{query}". 
+                    Focus on videos that would work well for vertical social media content. Return detailed 
+                    information about each video including download URLs and dimensions.""",
+                    agent=self.search_agent,
+                    expected_output="JSON list of video information including IDs, dimensions, download URLs, and metadata"
+                )
+                
+                search_crew = Crew(
+                    agents=[self.search_agent],
+                    tasks=[search_task],
+                    process=Process.sequential,
+                    verbose=True
+                )
+                
+                search_result = search_crew.kickoff()
+                videos_data = json.loads(str(search_result))
+                
+                logger.info(f"[SINGLE MODE] Found {len(videos_data)} videos for processing")
+                
+                # Process each video individually
+                for idx, video_data in enumerate(videos_data):
+                    try:
+                        logger.info(f"Processing video {idx + 1}/{len(videos_data)}: ID {video_data['id']}")
                         
-                except Exception as e:
-                    logger.error(f"Error processing video {video_data.get('id', 'unknown')}: {e}")
-                    continue
+                        result = self._process_single_video_with_audio(video_data, query, audio_options)
+                        if result:
+                            results.append(result)
+                            logger.info(f"Successfully processed video {video_data['id']}")
+                        else:
+                            logger.error(f"Failed to process video {video_data['id']}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing video {video_data.get('id', 'unknown')}: {e}")
+                        continue
+                        
+            elif mode == 'multi':
+                # MULTI MODE: Create one reel from multiple video segments
+                logger.info(f"[MULTI MODE] Creating multi-clip reel for query: '{query}'")
+                
+                # Fetch 5-7 videos for multi-clip
+                videos_data = self.fetch_multiple_videos(query, count=6)
+                
+                if len(videos_data) < 2:
+                    logger.error("Need at least 2 videos for multi-clip reel")
+                    return []
+                
+                logger.info(f"[MULTI MODE] Processing {len(videos_data)} videos for multi-clip reel")
+                
+                # Step 1: Download and process all videos to 720x1280
+                processed_clips = []
+                clips_dir = os.path.join(self.temp_dir, "clips")
+                os.makedirs(clips_dir, exist_ok=True)
+                
+                for idx, video_data in enumerate(videos_data):
+                    try:
+                        logger.info(f"Processing clip {idx + 1}/{len(videos_data)}: ID {video_data['id']}")
+                        
+                        # Download video
+                        video_filename = f"video_{video_data['id']}.mp4"
+                        video_path = self.download_video(video_data['download_url'], video_filename)
+                        
+                        # Process to 720x1280
+                        processed_filename = f"processed_{video_data['id']}.mp4"
+                        processed_path = os.path.join(clips_dir, processed_filename)
+                        
+                        processing_task = Task(
+                            description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio). 
+                            Maintain aspect ratio with padding if needed. Remove audio since we'll add our own later. 
+                            Save to {processed_path}.""",
+                            agent=self.processing_agent,
+                            expected_output="JSON object with processing results and output file information"
+                        )
+                        
+                        processing_crew = Crew(
+                            agents=[self.processing_agent],
+                            tasks=[processing_task],
+                            process=Process.sequential,
+                            verbose=False  # Less verbose for multi-clip
+                        )
+                        
+                        processing_result = processing_crew.kickoff()
+                        processing_data = json.loads(str(processing_result))
+                        
+                        if processing_data.get("success"):
+                            processed_clips.append({
+                                'path': processed_path,
+                                'video_data': video_data,
+                                'duration': video_data['duration']
+                            })
+                            logger.info(f"✅ Processed clip {idx + 1}: {processed_path}")
+                        else:
+                            logger.error(f"❌ Failed to process clip {idx + 1}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing clip {video_data.get('id', 'unknown')}: {e}")
+                        continue
+                
+                if len(processed_clips) < 2:
+                    logger.error("Failed to process enough clips for multi-clip reel")
+                    return []
+                
+                # Step 2: Trim 3-4 second segments from each processed clip
+                trimmed_clips = []
+                segment_duration = 3.5  # 3.5 seconds per segment
+                
+                for idx, clip_info in enumerate(processed_clips):
+                    try:
+                        # Calculate start time (middle of video for best content)
+                        video_duration = clip_info['duration']
+                        start_time = max(0, (video_duration - segment_duration) / 2)
+                        
+                        trimmed_filename = f"segment_{idx}_{clip_info['video_data']['id']}.mp4"
+                        trimmed_path = os.path.join(clips_dir, trimmed_filename)
+                        
+                        if self.trim_segment(clip_info['path'], start_time, segment_duration, trimmed_path):
+                            trimmed_clips.append(trimmed_path)
+                            logger.info(f"✅ Trimmed segment {idx + 1}: {trimmed_path}")
+                        else:
+                            logger.error(f"❌ Failed to trim segment {idx + 1}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error trimming segment {idx + 1}: {e}")
+                        continue
+                
+                if len(trimmed_clips) < 2:
+                    logger.error("Failed to trim enough segments for multi-clip reel")
+                    return []
+                
+                # Step 3: Concatenate trimmed segments
+                concat_filename = f"multi_reel_{query.replace(' ', '_')}_concat.mp4"
+                concat_dir = os.path.join(self.output_dir, "unaudio_video")
+                concat_path = os.path.join(concat_dir, concat_filename)
+                
+                if self.concat_clips(trimmed_clips, concat_path):
+                    logger.info(f"✅ Multi-clip video created: {concat_path}")
+                    
+                    # Step 4: Apply audio if requested
+                    final_output_filename = f"multi_reel_{query.replace(' ', '_')}.mp4"
+                    final_output_path = os.path.join(self.output_dir, final_output_filename)
+                    
+                    audio_results = []
+                    
+                    if audio_options and self.audio_agent:
+                        # Generate music if requested
+                        if audio_options.get('music', False):
+                            music_style = audio_options.get('music_style', 'upbeat energetic')
+                            prompt_text = f"{music_style} instrumental music for {query} multi-clip video reel suitable for social media"
+                            
+                            try:
+                                music_tool = FalMusicGenerationTool(self.fal_key)
+                                music_result = music_tool._run(prompt_text)
+                                music_data = json.loads(music_result)
+                                if music_data.get("success"):
+                                    audio_results.append(music_data)
+                                logger.info(f"Multi-clip music generated successfully")
+                            except Exception as e:
+                                logger.error(f"Multi-clip music generation failed: {e}")
+                        
+                        # Generate voice-over if requested
+                        if audio_options.get('voice', False) and audio_options.get('voice_text'):
+                            voice_text = audio_options['voice_text']
+                            
+                            try:
+                                tts_tool = FalTTSGenerationTool(self.fal_key)
+                                voice_result = tts_tool._run(voice_text)
+                                voice_data = json.loads(voice_result)
+                                if voice_data.get("success"):
+                                    audio_results.append(voice_data)
+                                logger.info(f"Multi-clip TTS generated successfully")
+                            except Exception as e:
+                                logger.error(f"Multi-clip TTS generation failed: {e}")
+                        
+                        # Mix audio with concatenated video
+                        if audio_results:
+                            current_video_path = concat_path
+                            
+                            for i, audio_data in enumerate(audio_results):
+                                if i == len(audio_results) - 1:
+                                    output_path = final_output_path
+                                else:
+                                    output_path = os.path.join(self.temp_dir, f"multi_mixed_{i}.mp4")
+                                
+                                try:
+                                    audio_mixing_tool = AudioMixingTool()
+                                    mixing_result = audio_mixing_tool._run(
+                                        video_path=current_video_path,
+                                        audio_url=audio_data['audio_url'],
+                                        output_path=output_path
+                                    )
+                                    mixing_data = json.loads(mixing_result)
+                                    
+                                    if mixing_data.get("success"):
+                                        current_video_path = output_path
+                                        logger.info(f"✅ Multi-clip audio mixing successful")
+                                    else:
+                                        logger.error(f"❌ Multi-clip audio mixing failed")
+                                        return []
+                                except Exception as e:
+                                    logger.error(f"❌ Multi-clip audio mixing error: {e}")
+                                    return []
+                        else:
+                            # No audio - copy concat video to final output
+                            import shutil
+                            shutil.copy2(concat_path, final_output_path)
+                    else:
+                        # No audio generation available - copy concat video to final output
+                        import shutil
+                        shutil.copy2(concat_path, final_output_path)
+                    
+                    # Clean up intermediate trimmed clips
+                    try:
+                        for clip_path in trimmed_clips:
+                            if os.path.exists(clip_path):
+                                os.remove(clip_path)
+                        logger.info("✅ Cleaned up intermediate trimmed clips")
+                    except Exception as e:
+                        logger.warning(f"Warning: Could not clean up some intermediate files: {e}")
+                    
+                    # Create result for multi-clip reel
+                    multi_result = {
+                        "mode": "multi",
+                        "videos_used": [clip['video_data'] for clip in processed_clips],
+                        "segment_count": len(trimmed_clips),
+                        "segment_duration": segment_duration,
+                        "audio_results": audio_results,
+                        "concat_file": concat_path,
+                        "output_file": final_output_path,
+                        "photographer_credits": [f"Video by {clip['video_data']['photographer']} on Pexels" for clip in processed_clips]
+                    }
+                    results.append(multi_result)
+                    logger.info(f"✅ Multi-clip reel created successfully: {final_output_path}")
+                    
+                else:
+                    logger.error("❌ Failed to concatenate clips")
+                    return []
+            
+            else:
+                raise ValueError(f"Invalid mode: {mode}. Use 'single' or 'multi'")
             
             return results
             
@@ -827,7 +1174,7 @@ class VideoReelConverter:
             logger.error(f"Error cleaning up: {e}")
 
 def main():
-    """Example usage of the Video Reel Converter"""
+    """Example usage of the Video Reel Converter with both single and multi modes"""
     
     # Pexels API key
     PEXELS_API_KEY = "D5KPwqY6nRIZIkM93E2Hc7mQowQOAdBIIBgPDQUqm2iNeJosigMOTG4t"
@@ -844,37 +1191,134 @@ def main():
     converter = VideoReelConverter(PEXELS_API_KEY)
     
     try:
-        # Example conversion
-        query = "nature landscape"
-        logger.info(f"Converting videos for query: '{query}'")
-        
-        results = converter.convert_to_reel(query, per_page=2)
+        # Demo both modes
+        query = "ocean waves"
         
         print("\n" + "="*80)
-        print("CONVERSION RESULTS")
+        print("🎬 VIDEO REEL CONVERTER - SINGLE vs MULTI MODE DEMO")
         print("="*80)
         
-        for i, result in enumerate(results, 1):
-            print(f"\nVideo {i}:")
-            print(f"  Original: {result['original_video']['width']}x{result['original_video']['height']}")
-            print(f"  Duration: {result['original_video']['duration']} seconds")
-            print(f"  Photographer: {result['photographer_credit']}")
-            print(f"  Processing: {result['processing_result']['processing_method']}")
-            print(f"  Output file: {result['output_file']}")
-            print(f"  Final resolution: {result['processing_result']['final_resolution']}")
+        # EXAMPLE 1: Single Mode (Default behavior)
+        print(f"\n📱 SINGLE MODE: Converting individual videos for '{query}'")
+        print("-" * 60)
         
-        print(f"\n✅ Successfully converted {len(results)} videos to reel format!")
-        print(f"📁 Output directory: {converter.output_dir}")
-        print("\n💡 Tips:")
-        print("  - Videos are optimized for Instagram Reels and TikTok")
-        print("  - Audio is preserved in AAC format")
-        print("  - Files are optimized for fast streaming")
-        print("  - Always credit photographers when using their content")
+        audio_options_single = {
+            "music": True,
+            "music_style": "calm peaceful ambient"
+        }
+        
+        single_results = converter.convert_to_reel_with_audio(
+            query=query, 
+            audio_options=audio_options_single, 
+            per_page=2, 
+            mode='single'  # Default mode
+        )
+        
+        print(f"✅ Single mode completed: {len(single_results)} individual reels created")
+        for i, result in enumerate(single_results, 1):
+            print(f"  Reel {i}: {result['output_file']}")
+            print(f"    - Original: {result['original_video']['width']}x{result['original_video']['height']}")
+            print(f"    - Photographer: {result['photographer_credit']}")
+        
+        # EXAMPLE 2: Multi Mode (New feature)
+        print(f"\n🎞️  MULTI MODE: Creating dynamic multi-clip reel for '{query}'")
+        print("-" * 60)
+        
+        audio_options_multi = {
+            "music": True,
+            "music_style": "cinematic epic upbeat",
+            "voice": True,
+            "voice_text": "Experience the power and beauty of the ocean through these stunning visuals"
+        }
+        
+        multi_results = converter.convert_to_reel_with_audio(
+            query=query, 
+            audio_options=audio_options_multi, 
+            per_page=6,  # Will fetch 6 videos for segments  
+            mode='multi'  # New multi-clip mode
+        )
+        
+        print(f"✅ Multi mode completed: {len(multi_results)} multi-clip reels created")
+        for i, result in enumerate(multi_results, 1):
+            print(f"  Multi-Reel {i}: {result['output_file']}")
+            print(f"    - Videos used: {result['segment_count']} clips")
+            print(f"    - Segment duration: {result['segment_duration']} seconds each")
+            print(f"    - Total sources: {len(result['videos_used'])} videos")
+            print(f"    - Credits: {len(result['photographer_credits'])} photographers")
+        
+        print("\n" + "="*80)
+        print("📊 COMPARISON SUMMARY")
+        print("="*80)
+        print("🔹 SINGLE MODE:")
+        print("  ✓ Creates individual reels from separate videos")
+        print("  ✓ Best for showcasing specific content")
+        print("  ✓ Maintains original video pacing")
+        print("  ✓ Good for longer-form content")
+        
+        print("\n🔹 MULTI MODE:")
+        print("  ✓ Creates dynamic multi-clip reels")
+        print("  ✓ Perfect for social media engagement")
+        print("  ✓ Fast-paced, attention-grabbing")
+        print("  ✓ Ideal for Instagram Reels & TikTok")
+        print("  ✓ Automatic 3-4 second segments")
+        print("  ✓ Seamless clip transitions")
+        
+        print(f"\n📁 All outputs saved to: {converter.output_dir}")
+        print("\n💡 Usage Tips:")
+        print("  - Use single mode for detailed content showcase")
+        print("  - Use multi mode for viral, fast-paced content")
+        print("  - Multi mode automatically selects best video segments")
+        print("  - Both modes support background music + voice narration")
+        print("  - Always credit photographers when using content")
         
     except Exception as e:
         logger.error(f"Error in main: {e}")
         print(f"❌ Error: {e}")
     
+    finally:
+        converter.cleanup()
+
+def demo_single_mode():
+    """Demo function showing single mode usage"""
+    PEXELS_API_KEY = "YOUR_PEXELS_API_KEY"
+    converter = VideoReelConverter(PEXELS_API_KEY)
+    
+    try:
+        # Single mode example
+        results = converter.convert_to_reel_with_audio(
+            query="sunset beach",
+            audio_options={
+                "music": True,
+                "music_style": "peaceful ambient relaxing"
+            },
+            per_page=3,
+            mode='single'  # Process 3 individual videos
+        )
+        print(f"Created {len(results)} individual reels")
+        
+    finally:
+        converter.cleanup()
+
+def demo_multi_mode():
+    """Demo function showing multi mode usage"""
+    PEXELS_API_KEY = "YOUR_PEXELS_API_KEY" 
+    converter = VideoReelConverter(PEXELS_API_KEY)
+    
+    try:
+        # Multi mode example
+        results = converter.convert_to_reel_with_audio(
+            query="city nightlife",
+            audio_options={
+                "music": True,
+                "music_style": "energetic electronic upbeat",
+                "voice": True,
+                "voice_text": "Discover the vibrant energy of city nightlife"
+            },
+            per_page=6,  # Fetch 6 videos to create segments
+            mode='multi'  # Create one dynamic multi-clip reel
+        )
+        print(f"Created {len(results)} multi-clip reel with dynamic segments")
+        
     finally:
         converter.cleanup()
 

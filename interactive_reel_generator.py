@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from video_reel_converter import VideoReelConverter
 from dotenv import load_dotenv
+import openai
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
@@ -27,12 +29,126 @@ class UserPreferences:
     voice_style: Optional[str] = None
     voice_text: Optional[str] = None
     custom_query: Optional[str] = None
+    mode: str = 'single'  # Add mode to preferences
+
+class KeywordEnhancementAgent:
+    """AI agent using OpenAI GPT-3.5 to enhance search keywords for better video results"""
+    
+    def __init__(self, openai_api_key: Optional[str] = None):
+        self.client = None
+        api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
+        
+        if api_key:
+            try:
+                self.client = OpenAI(api_key=api_key)
+                print("🤖 AI Keyword Enhancement Agent initialized")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not initialize OpenAI client: {e}")
+                print("🔍 Will use original search terms without enhancement")
+        else:
+            print("⚠️  Warning: OPENAI_API_KEY not found")
+            print("🔍 Will use original search terms without enhancement")
+    
+    def enhance_search_query(self, user_input: str, mood: str = "neutral", style: str = "general") -> List[str]:
+        """
+        Enhance user's abstract search term into specific, visual keywords
+        
+        Args:
+            user_input: User's original search term (e.g., "motivational")
+            mood: Video mood preference
+            style: Video style preference
+            
+        Returns:
+            List of enhanced, specific search keywords
+        """
+        if not self.client:
+            # Fallback: return original query if OpenAI not available
+            return [user_input]
+        
+        try:
+            prompt = f"""
+You are a video search optimization expert. Transform abstract search terms into specific, visual keywords that work well for stock video searches.
+
+User Input: "{user_input}"
+Mood: {mood}
+Style: {style}
+
+Generate 5-7 specific, visual search keywords that represent this concept. Focus on:
+- Concrete, visual actions and scenes
+- Things that can actually be filmed
+- Diverse perspectives and scenarios
+- Professional stock video content
+
+Format your response as a JSON array of strings.
+
+Examples:
+- "motivational" → ["person climbing mountain", "athlete training workout", "business team celebrating success", "runner crossing finish line", "entrepreneur working late", "graduation ceremony celebration"]
+- "peaceful" → ["calm lake reflection", "person meditating sunrise", "gentle waves beach", "quiet forest path", "zen garden stones", "slow motion falling leaves"]
+- "technology" → ["hands typing laptop", "smartphone close up", "server room lights", "coding on multiple monitors", "robotic arm assembly", "digital network animation"]
+
+Your response (JSON array only):
+"""
+            
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a video search optimization expert. Always respond with valid JSON arrays of search keywords."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.7
+            )
+            
+            # Parse the response
+            enhanced_keywords = json.loads(response.choices[0].message.content.strip())
+            
+            if isinstance(enhanced_keywords, list) and len(enhanced_keywords) > 0:
+                print(f"🤖 AI Enhanced '{user_input}' → {len(enhanced_keywords)} specific keywords")
+                print(f"   Keywords: {', '.join(enhanced_keywords[:3])}...")
+                return enhanced_keywords
+            else:
+                print(f"⚠️  AI response format issue, using original: {user_input}")
+                return [user_input]
+                
+        except json.JSONDecodeError:
+            print(f"⚠️  AI response parsing failed, using original: {user_input}")
+            return [user_input]
+        except Exception as e:
+            print(f"⚠️  AI enhancement failed ({e}), using original: {user_input}")
+            return [user_input]
+    
+    def select_best_keyword(self, enhanced_keywords: List[str], mode: str = 'single') -> str:
+        """
+        Select the best keyword from enhanced list based on mode
+        
+        Args:
+            enhanced_keywords: List of AI-enhanced keywords
+            mode: 'single' or 'multi' - affects keyword selection strategy
+            
+        Returns:
+            Best keyword for the specified mode
+        """
+        if not enhanced_keywords:
+            return "nature"  # Fallback
+        
+        if mode == 'multi':
+            # For multi-clip mode, prefer broader terms that yield diverse results
+            # Look for keywords that suggest variety
+            broad_keywords = [kw for kw in enhanced_keywords if 
+                            any(word in kw.lower() for word in ['people', 'various', 'different', 'team', 'group'])]
+            if broad_keywords:
+                return broad_keywords[0]
+        
+        # Default: return first (usually best) keyword
+        return enhanced_keywords[0]
 
 class ReelGeneratorUI:
     """Interactive Reel Generator with User Interface"""
     
     def __init__(self):
         self.pexels_api_key = "D5KPwqY6nRIZIkM93E2Hc7mQowQOAdBIIBgPDQUqm2iNeJosigMOTG4t"
+        # Initialize AI keyword enhancement agent
+        self.keyword_agent = KeywordEnhancementAgent()
         self.categories = {
             "1": {
                 "name": "Nature & Lifestyle",
@@ -194,6 +310,21 @@ class ReelGeneratorUI:
         for key, voice in self.voice_styles.items():
             print(f"{key}. {voice['name']}")
 
+    def display_generation_modes(self):
+        """Display video generation mode options"""
+        print("\n🎬 VIDEO GENERATION MODE:")
+        print("-" * 30)
+        print("1. 📱 Single Mode - Individual videos (classic mode)")
+        print("   • Creates separate reels from different videos")
+        print("   • Best for showcasing specific content")
+        print("   • Traditional social media format")
+        print()
+        print("2. 🎞️  Multi Mode - Dynamic multi-clip reel (new!)")
+        print("   • Creates ONE reel from multiple video segments")
+        print("   • 3-4 second clips automatically trimmed & combined")
+        print("   • Perfect for viral, fast-paced content")
+        print("   • Ideal for Instagram Reels & TikTok")
+
     def get_voice_text(self) -> str:
         """Get custom voice text from user"""
         print("\n📝 VOICE NARRATION TEXT:")
@@ -354,6 +485,12 @@ class ReelGeneratorUI:
                 voice_style_choice = self.get_user_input("Select voice style", valid_voice)
                 voice_text_input = self.get_voice_text()
             
+            # Get video generation mode
+            self.display_generation_modes()
+            valid_modes = ["1", "2"]
+            mode_choice = self.get_user_input("Select generation mode", valid_modes)
+            mode = "single" if mode_choice == "1" else "multi"
+            
             # Create preferences object
             preferences = UserPreferences(
                 category=category_choice,
@@ -365,7 +502,8 @@ class ReelGeneratorUI:
                 music_style=music_style_choice,
                 voice_style=voice_style_choice,
                 voice_text=voice_text_input,
-                custom_query=custom_search
+                custom_query=custom_search,
+                mode=mode
             )
             
             return preferences
@@ -504,9 +642,42 @@ class ReelGeneratorUI:
                 print("🔇 No audio will be added")
             
             try:
-                # Use the new audio-enabled conversion method
-                print(f"🔍 Searching for: '{search_query}'")
-                results = converter.convert_to_reel_with_audio(search_query, audio_options, per_page=1)
+                # AI-enhanced keyword optimization
+                if preferences.custom_query:
+                    print(f"🔍 Original search: '{search_query}'")
+                    print("🤖 Enhancing keywords with AI...")
+                    
+                    enhanced_keywords = self.keyword_agent.enhance_search_query(
+                        user_input=search_query,
+                        mood=self.moods[preferences.mood]["name"].lower(),
+                        style=self.styles[preferences.style]["name"].lower()
+                    )
+                    
+                    # Select best keyword based on mode
+                    final_search_query = self.keyword_agent.select_best_keyword(
+                        enhanced_keywords, preferences.mode
+                    )
+                    
+                    print(f"🎯 Final search query: '{final_search_query}'")
+                else:
+                    final_search_query = search_query
+                    print(f"🔍 Using category-based search: '{final_search_query}'")
+                
+                # Determine per_page based on mode
+                if preferences.mode == 'multi':
+                    per_page = 6  # Fetch 6 videos for multi-clip segments
+                    print(f"🎞️  Multi-clip mode: Fetching {per_page} videos for dynamic reel")
+                else:
+                    per_page = 3  # Fetch 3 videos for individual processing
+                    print(f"📱 Single mode: Fetching {per_page} individual videos")
+                
+                # Use the enhanced conversion method
+                results = converter.convert_to_reel_with_audio(
+                    query=final_search_query, 
+                    audio_options=audio_options, 
+                    per_page=per_page,
+                    mode=preferences.mode
+                )
                 
                 # Display results
                 self.display_results(results, preferences)
@@ -532,21 +703,49 @@ class ReelGeneratorUI:
         print(f"📁 Output folder: output_reels/")
         
         for i, result in enumerate(results, 1):
-            print(f"\n📹 Video {i}:")
-            print(f"  📄 File: {os.path.basename(result['output_file'])}")
-            print(f"  📐 Resolution: {result['processing_result']['final_resolution']}")
-            print(f"  🎭 Original by: {result['photographer_credit']}")
-            print(f"  🎯 Processing: {result['processing_result'].get('processing_method', 'scale_with_padding')}")
-            
-            # Show audio information if available
-            if result.get('audio_results'):
-                audio_count = len(result['audio_results'])
-                print(f"  🎵 Audio tracks added: {audio_count}")
-                for j, audio in enumerate(result['audio_results'], 1):
-                    audio_type = audio.get('type', 'unknown')
-                    print(f"     {j}. {audio_type.title()}")
+            if result.get('mode') == 'multi':
+                # Multi-clip reel display
+                print(f"\n🎞️  Multi-Clip Reel {i}:")
+                print(f"  📄 File: {os.path.basename(result['output_file'])}")
+                print(f"  📐 Resolution: 720x1280")
+                print(f"  🎬 Clips used: {result['segment_count']} segments")
+                print(f"  ⏱️  Segment duration: {result['segment_duration']} seconds each")
+                print(f"  🎯 Processing: Multi-clip concatenation")
+                
+                # Show source videos
+                print(f"  📺 Source videos: {len(result['videos_used'])}")
+                for j, video in enumerate(result['videos_used'][:3], 1):  # Show first 3
+                    print(f"     {j}. ID {video['id']} by {video['photographer']}")
+                if len(result['videos_used']) > 3:
+                    print(f"     ... and {len(result['videos_used']) - 3} more")
+                
+                # Show audio information if available
+                if result.get('audio_results'):
+                    audio_count = len(result['audio_results'])
+                    print(f"  🎵 Audio tracks added: {audio_count}")
+                    for j, audio in enumerate(result['audio_results'], 1):
+                        audio_type = audio.get('type', 'unknown')
+                        print(f"     {j}. {audio_type.title()}")
+                else:
+                    print(f"  🔇 No audio added")
+                    
             else:
-                print(f"  🔇 No audio added")
+                # Single video display
+                print(f"\n📹 Video {i}:")
+                print(f"  📄 File: {os.path.basename(result['output_file'])}")
+                print(f"  📐 Resolution: {result['processing_result']['final_resolution']}")
+                print(f"  🎭 Original by: {result['photographer_credit']}")
+                print(f"  🎯 Processing: {result['processing_result'].get('processing_method', 'scale_with_padding')}")
+                
+                # Show audio information if available
+                if result.get('audio_results'):
+                    audio_count = len(result['audio_results'])
+                    print(f"  🎵 Audio tracks added: {audio_count}")
+                    for j, audio in enumerate(result['audio_results'], 1):
+                        audio_type = audio.get('type', 'unknown')
+                        print(f"     {j}. {audio_type.title()}")
+                else:
+                    print(f"  🔇 No audio added")
             
             if os.path.exists(result['output_file']):
                 file_size = os.path.getsize(result['output_file']) / (1024 * 1024)
@@ -560,11 +759,21 @@ class ReelGeneratorUI:
         
         print(f"\n🎨 Style: {self.styles[preferences.style]['name']}")
         print(f"🎭 Mood: {self.moods[preferences.mood]['name']}")
+        print(f"🎬 Mode: {preferences.mode.title()}")
+        
+        if preferences.mode == 'multi':
+            print("\n🎞️  Multi-Clip Features:")
+            print("  • Dynamic segment transitions")
+            print("  • Perfect for viral content")
+            print("  • Optimized for short attention spans")
+            print("  • Professional concatenation")
         
         print("\n💡 Tips:")
         print("  • Always credit the original photographers")
         print("  • Videos are optimized for social media")
         print("  • Ready to upload directly!")
+        if preferences.mode == 'multi':
+            print("  • Multi-clip reels perform better on social media")
         print("\n" + "="*80)
 
 def main():
