@@ -142,32 +142,51 @@ class VideoProcessingTool(BaseTool):
     name: str = "video_processing"
     description: str = "Process video by scaling to 720x1280 (9:16 aspect ratio) without cropping"
     
-    def _run(self, video_path: str, output_path: str) -> str:
+    def _run(self, video_path: str, output_path: str, logo_path: str = None) -> str:
         """Process video with FFmpeg scaling only
         
         Args:
             video_path: Path to the video file
             output_path: Output path for processed video
+            logo_path: Optional path to logo image for overlay
         """
         try:
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # FFmpeg command for high-quality scaling WITHOUT audio preservation
-            # Remove original audio so only TTS audio will be in final output
-            cmd = [
-                "ffmpeg", "-i", video_path,
-                "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:-1:-1:color=black",
-                "-an",  # Remove audio stream
-                "-c:v", "libx264",  # Video codec
-                "-preset", "slower",  # Better quality preset
-                "-crf", "18",  # High quality setting (lower = better)
-                "-pix_fmt", "yuv420p",  # Compatibility format
-                "-profile:v", "high", "-level", "4.0",  # High profile for better quality
-                "-movflags", "+faststart",  # Optimize for streaming
-                "-y",  # Overwrite output file
-                output_path
-            ]
+            # Build FFmpeg command based on logo presence
+            if logo_path and os.path.exists(logo_path):
+                # FFmpeg command with logo overlay using filter_complex
+                logger.info(f"Adding logo overlay from: {logo_path}")
+                cmd = [
+                    "ffmpeg", "-i", video_path, "-i", logo_path,
+                    "-filter_complex", 
+                    "[0:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:-1:-1:color=black[base]; [1:v]scale=80:-1[logo]; [base][logo]overlay=W-w-15:25",
+                    "-an",  # Remove audio stream
+                    "-c:v", "libx264",  # Video codec
+                    "-preset", "slower",  # Better quality preset
+                    "-crf", "18",  # High quality setting (lower = better)
+                    "-pix_fmt", "yuv420p",  # Compatibility format
+                    "-profile:v", "high", "-level", "4.0",  # High profile for better quality
+                    "-movflags", "+faststart",  # Optimize for streaming
+                    "-y",  # Overwrite output file
+                    output_path
+                ]
+            else:
+                # Original FFmpeg command without logo overlay
+                cmd = [
+                    "ffmpeg", "-i", video_path,
+                    "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:-1:-1:color=black",
+                    "-an",  # Remove audio stream
+                    "-c:v", "libx264",  # Video codec
+                    "-preset", "slower",  # Better quality preset
+                    "-crf", "18",  # High quality setting (lower = better)
+                    "-pix_fmt", "yuv420p",  # Compatibility format
+                    "-profile:v", "high", "-level", "4.0",  # High profile for better quality
+                    "-movflags", "+faststart",  # Optimize for streaming
+                    "-y",  # Overwrite output file
+                    output_path
+                ]
             
             logger.info(f"Processing video with command: {' '.join(cmd)}")
             
@@ -547,19 +566,27 @@ class AudioMixingTool(BaseTool):
             "MarginV=50"                    # Vertical margin from the bottom
         )
     
-    def _run(self, video_path: str, audio_url: str, output_path: str, srt_path: str = None) -> str:
-        """Mix audio with video using FFmpeg, optionally burning subtitles"""
+    def _run(self, video_path: str, audio_url: str, output_path: str, srt_path: str = None, music_url: str = None) -> str:
+        """Mix audio with video using FFmpeg, optionally burning subtitles and background music"""
         try:
-            # Download audio file
+            # Download primary audio file (voice)
             temp_audio_path = f"/tmp/temp_audio_{os.getpid()}.mp3"
-            
-            # Download the audio
             response = requests.get(audio_url)
             with open(temp_audio_path, 'wb') as f:
                 f.write(response.content)
             
+            # Download background music if provided
+            temp_music_path = None
+            if music_url:
+                temp_music_path = f"/tmp/temp_music_{os.getpid()}.mp3"
+                response = requests.get(music_url)
+                with open(temp_music_path, 'wb') as f:
+                    f.write(response.content)
+            
             # Build FFmpeg command
             cmd = ["ffmpeg", "-i", video_path, "-i", temp_audio_path]
+            if temp_music_path:
+                cmd.extend(["-i", temp_music_path])
             
             # Add subtitle filter if SRT file is provided
             if srt_path and os.path.exists(srt_path):
@@ -578,20 +605,33 @@ class AudioMixingTool(BaseTool):
                 # No subtitles, copy video without re-encoding
                 cmd.extend(["-c:v", "copy"])
             
-            # Audio settings
-            cmd.extend([
-                "-c:a", "aac", "-b:a", "128k",
-                "-shortest",  # Match the duration of the shorter stream
-                "-y", output_path
-            ])
+            # Audio mixing settings
+            if temp_music_path:
+                # Mix voice (input 1) with background music (input 2) at lower volume
+                cmd.extend([
+                    "-filter_complex", 
+                    "[2:a]volume=0.15[music_low];[1:a][music_low]amix=inputs=2:duration=first:dropout_transition=2",
+                    "-c:a", "aac", "-b:a", "128k",
+                    "-shortest", "-y", output_path
+                ])
+                logger.info("🎵 Mixing voice with background music at 15% volume")
+            else:
+                # Single audio track
+                cmd.extend([
+                    "-c:a", "aac", "-b:a", "128k",
+                    "-shortest", "-y", output_path
+                ])
+                logger.info("🎤 Adding voice-only audio")
             
             logger.info(f"Mixing audio with command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode == 0:
-                # Clean up temp audio file
+                # Clean up temp audio files
                 try:
                     os.remove(temp_audio_path)
+                    if temp_music_path:
+                        os.remove(temp_music_path)
                 except:
                     pass
                 
@@ -927,7 +967,7 @@ class VideoReelConverter:
         return None
 
     def _process_single_video_with_audio(self, video_data: Dict, query: str, 
-                                       audio_options: Dict = None) -> Optional[Dict]:
+                                       audio_options: Dict = None, logo_path: str = None) -> Optional[Dict]:
         """Process a single video with optional audio generation"""
         try:
             # Download video
@@ -942,10 +982,11 @@ class VideoReelConverter:
             # Ensure unaudio_video directory exists
             os.makedirs(unaudio_dir, exist_ok=True)
             
+            logo_description = f" with logo overlay from {logo_path}" if logo_path else ""
             processing_task = Task(
-                description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio). 
+                description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio){logo_description}. 
                 Maintain aspect ratio with padding if needed. Preserve audio quality and optimize for social media playback. 
-                Save to {unaudio_output_path}.""",
+                Save to {unaudio_output_path}. Use video_processing tool with parameters: video_path='{video_path}', output_path='{unaudio_output_path}', logo_path={'None' if not logo_path else f"'{logo_path}'"}).""",
                 agent=self.processing_agent,
                 expected_output="JSON object with processing results and output file information"
             )
@@ -1049,51 +1090,57 @@ class VideoReelConverter:
                         logger.error("Cannot proceed with audio mixing. Video processing may have failed.")
                         return None
                     
-                    current_video_path = unaudio_output_path
-                    
-                    for i, audio_data in enumerate(audio_results):
-                        if i == len(audio_results) - 1:
-                            # Last audio mixing - use final output path
-                            output_path = final_output_path
-                        else:
-                            # Intermediate mixing
-                            output_path = os.path.join(self.temp_dir, f"mixed_{i}_{video_data['id']}.mp4")
+                    try:
+                        # Separate music and voice data
+                        voice_data_filtered = None
+                        music_data_filtered = None
                         
-                        # Direct audio mixing bypassing CrewAI to avoid issues
-                        logger.info(f"Mixing audio directly: {audio_data['audio_url']} with {current_video_path}")
+                        for audio_data in audio_results:
+                            if audio_data.get('type') == 'tts':
+                                voice_data_filtered = audio_data
+                            else:  # music
+                                music_data_filtered = audio_data
                         
-                        # Double check current video path exists before mixing
-                        if not os.path.exists(current_video_path):
-                            logger.error(f"❌ Video file missing during mixing: {current_video_path}")
-                            return None
+                        audio_mixing_tool = AudioMixingTool()
                         
-                        try:
-                            audio_mixing_tool = AudioMixingTool()
-                            # Get SRT path if this is TTS audio with subtitles
-                            srt_path = audio_data.get('srt_path') if audio_data.get('type') == 'tts' else None
-                            
+                        if voice_data_filtered and music_data_filtered:
+                            # Both voice and music - mix simultaneously
+                            logger.info("🎵🎤 Mixing voice with background music")
                             mixing_result = audio_mixing_tool._run(
-                                video_path=current_video_path,
-                                audio_url=audio_data['audio_url'],
-                                output_path=output_path,
-                                srt_path=srt_path
+                                video_path=unaudio_output_path,
+                                audio_url=voice_data_filtered['audio_url'],
+                                output_path=final_output_path,
+                                srt_path=voice_data_filtered.get('srt_path'),
+                                music_url=music_data_filtered['audio_url']
                             )
-                            mixing_data = json.loads(mixing_result)
-                            
-                            if mixing_data.get("success"):
-                                # Verify the output file actually exists
-                                if os.path.exists(output_path):
-                                    current_video_path = output_path
-                                    logger.info(f"✅ Audio mixing successful: {output_path}")
-                                else:
-                                    logger.error(f"❌ Audio mixing claimed success but output file missing: {output_path}")
-                                    return None
-                            else:
-                                logger.error(f"❌ Audio mixing failed: {mixing_data}")
-                                return None
-                        except Exception as e:
-                            logger.error(f"❌ Direct audio mixing failed: {e}")
+                        elif voice_data_filtered:
+                            # Voice only
+                            logger.info("🎤 Adding voice narration")
+                            mixing_result = audio_mixing_tool._run(
+                                video_path=unaudio_output_path,
+                                audio_url=voice_data_filtered['audio_url'],
+                                output_path=final_output_path,
+                                srt_path=voice_data_filtered.get('srt_path')
+                            )
+                        elif music_data_filtered:
+                            # Music only
+                            logger.info("🎵 Adding background music")
+                            mixing_result = audio_mixing_tool._run(
+                                video_path=unaudio_output_path,
+                                audio_url=music_data_filtered['audio_url'],
+                                output_path=final_output_path
+                            )
+                        
+                        mixing_data = json.loads(mixing_result)
+                        if not mixing_data.get("success"):
+                            logger.error(f"❌ Audio mixing failed: {mixing_data}")
                             return None
+                        else:
+                            logger.info(f"✅ Audio mixing successful: {final_output_path}")
+                            
+                    except Exception as e:
+                        logger.error(f"❌ Audio mixing error: {e}")
+                        return None
                 else:
                     # No audio requested - just copy unaudio video to final output
                     if os.path.exists(unaudio_output_path):
@@ -1235,24 +1282,20 @@ class VideoReelConverter:
             # Clamp count to reasonable range but allow for longer audio
             count = max(3, min(count, 15))  # Increased max to 15 for longer audio
             
-            search_task = Task(
-                description=f"""Search for {count} high-quality videos on Pexels using the query: "{query}". 
-                Use the pexels_video_search tool with per_page={count} to fetch exactly {count} videos.
-                Focus on videos that would work well for vertical social media content and multi-clip reels. 
-                Return detailed information about each video including download URLs and dimensions.""",
-                agent=self.search_agent,
-                expected_output="JSON list of video information including IDs, dimensions, download URLs, and metadata"
-            )
+            # Direct tool call to bypass CrewAI parameter issues
+            logger.info(f"[MULTI MODE] Searching for {count} videos with query: '{query}'")
             
-            search_crew = Crew(
-                agents=[self.search_agent],
-                tasks=[search_task],
-                process=Process.sequential,
-                verbose=True
-            )
-            
-            search_result = search_crew.kickoff()
-            videos_data = json.loads(str(search_result))
+            try:
+                search_result = self.pexels_tool._run(query=query, per_page=count)
+                videos_data = json.loads(search_result)
+                
+                if not videos_data:
+                    logger.error("No videos found for the search query")
+                    return []
+                    
+            except Exception as search_error:
+                logger.error(f"Direct search failed: {search_error}")
+                return []
             
             logger.info(f"Fetched {len(videos_data)} videos for multi-clip reel")
             return videos_data
@@ -1261,7 +1304,7 @@ class VideoReelConverter:
             logger.error(f"Error fetching multiple videos: {e}")
             return []
 
-    def convert_to_reel_with_audio(self, query: str, audio_options: Dict = None, per_page: int = 3, mode: str = 'single') -> List[Dict]:
+    def convert_to_reel_with_audio(self, query: str, audio_options: Dict = None, per_page: int = 3, mode: str = 'single', logo_path: str = None) -> List[Dict]:
         """Convert videos to reel format with optional audio generation
         
         Args:
@@ -1269,29 +1312,26 @@ class VideoReelConverter:
             audio_options: Audio generation options
             per_page: Number of videos to fetch
             mode: 'single' for one video or 'multi' for multi-clip reel
+            logo_path: Optional path to logo image file for overlay
         """
         try:
             results = []
             
             if mode == 'single':
-                # SINGLE MODE: Original workflow - process individual videos
-                search_task = Task(
-                    description=f"""Search for {per_page} high-quality videos on Pexels using the query: "{query}". 
-                    Focus on videos that would work well for vertical social media content. Return detailed 
-                    information about each video including download URLs and dimensions.""",
-                    agent=self.search_agent,
-                    expected_output="JSON list of video information including IDs, dimensions, download URLs, and metadata"
-                )
+                # SINGLE MODE: Direct tool call to bypass CrewAI parameter issues
+                logger.info(f"[SINGLE MODE] Searching for {per_page} videos with query: '{query}'")
                 
-                search_crew = Crew(
-                    agents=[self.search_agent],
-                    tasks=[search_task],
-                    process=Process.sequential,
-                    verbose=True
-                )
-                
-                search_result = search_crew.kickoff()
-                videos_data = json.loads(str(search_result))
+                try:
+                    search_result = self.pexels_tool._run(query=query, per_page=per_page)
+                    videos_data = json.loads(search_result)
+                    
+                    if not videos_data:
+                        logger.error("No videos found for the search query")
+                        return []
+                        
+                except Exception as search_error:
+                    logger.error(f"Direct search failed: {search_error}")
+                    return []
                 
                 logger.info(f"[SINGLE MODE] Found {len(videos_data)} videos for processing")
                 
@@ -1300,7 +1340,7 @@ class VideoReelConverter:
                     try:
                         logger.info(f"Processing video {idx + 1}/{len(videos_data)}: ID {video_data['id']}")
                         
-                        result = self._process_single_video_with_audio(video_data, query, audio_options)
+                        result = self._process_single_video_with_audio(video_data, query, audio_options, logo_path)
                         if result:
                             results.append(result)
                             logger.info(f"Successfully processed video {video_data['id']}")
@@ -1459,10 +1499,11 @@ class VideoReelConverter:
                         processed_filename = f"processed_{video_data['id']}.mp4"
                         processed_path = os.path.join(clips_dir, processed_filename)
                         
+                        logo_description = f" with logo overlay from {logo_path}" if logo_path else ""
                         processing_task = Task(
-                            description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio). 
+                            description=f"""Process the video at {video_path} by scaling it to exactly 720x1280 pixels (9:16 aspect ratio){logo_description}. 
                             Maintain aspect ratio with padding if needed. Remove audio since we'll add our own later. 
-                            Save to {processed_path}.""",
+                            Save to {processed_path}. Use video_processing tool with parameters: video_path='{video_path}', output_path='{processed_path}', logo_path={'None' if not logo_path else f"'{logo_path}'"}).""",
                             agent=self.processing_agent,
                             expected_output="JSON object with processing results and output file information"
                         )
@@ -1586,36 +1627,57 @@ class VideoReelConverter:
                         
                         # Mix audio with concatenated video
                         if audio_results:
-                            current_video_path = concat_path
-                            
-                            for i, audio_data in enumerate(audio_results):
-                                if i == len(audio_results) - 1:
-                                    output_path = final_output_path
-                                else:
-                                    output_path = os.path.join(self.temp_dir, f"multi_mixed_{i}.mp4")
+                            try:
+                                # Separate music and voice data
+                                voice_data_filtered = None
+                                music_data_filtered = None
                                 
-                                try:
-                                    audio_mixing_tool = AudioMixingTool()
-                                    # Get SRT path if this is TTS audio with subtitles
-                                    srt_path = audio_data.get('srt_path') if audio_data.get('type') == 'tts' else None
-                                    
+                                for audio_data in audio_results:
+                                    if audio_data.get('type') == 'tts':
+                                        voice_data_filtered = audio_data
+                                    else:  # music
+                                        music_data_filtered = audio_data
+                                
+                                audio_mixing_tool = AudioMixingTool()
+                                
+                                if voice_data_filtered and music_data_filtered:
+                                    # Both voice and music - mix simultaneously
+                                    logger.info("🎵🎤 Mixing voice with background music")
                                     mixing_result = audio_mixing_tool._run(
-                                        video_path=current_video_path,
-                                        audio_url=audio_data['audio_url'],
-                                        output_path=output_path,
-                                        srt_path=srt_path
+                                        video_path=concat_path,
+                                        audio_url=voice_data_filtered['audio_url'],
+                                        output_path=final_output_path,
+                                        srt_path=voice_data_filtered.get('srt_path'),
+                                        music_url=music_data_filtered['audio_url']
                                     )
-                                    mixing_data = json.loads(mixing_result)
-                                    
-                                    if mixing_data.get("success"):
-                                        current_video_path = output_path
-                                        logger.info(f"✅ Multi-clip audio mixing successful")
-                                    else:
-                                        logger.error(f"❌ Multi-clip audio mixing failed")
-                                        return []
-                                except Exception as e:
-                                    logger.error(f"❌ Multi-clip audio mixing error: {e}")
+                                elif voice_data_filtered:
+                                    # Voice only
+                                    logger.info("🎤 Adding voice narration")
+                                    mixing_result = audio_mixing_tool._run(
+                                        video_path=concat_path,
+                                        audio_url=voice_data_filtered['audio_url'],
+                                        output_path=final_output_path,
+                                        srt_path=voice_data_filtered.get('srt_path')
+                                    )
+                                elif music_data_filtered:
+                                    # Music only
+                                    logger.info("🎵 Adding background music")
+                                    mixing_result = audio_mixing_tool._run(
+                                        video_path=concat_path,
+                                        audio_url=music_data_filtered['audio_url'],
+                                        output_path=final_output_path
+                                    )
+                                
+                                mixing_data = json.loads(mixing_result)
+                                if not mixing_data.get("success"):
+                                    logger.error(f"❌ Multi-clip audio mixing failed")
                                     return []
+                                else:
+                                    logger.info(f"✅ Multi-clip audio mixing successful")
+                                    
+                            except Exception as e:
+                                logger.error(f"❌ Multi-clip audio mixing error: {e}")
+                                return []
                         else:
                             # No audio - copy concat video to final output
                             import shutil

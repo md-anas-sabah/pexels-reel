@@ -30,6 +30,7 @@ class UserPreferences:
     voice_text: Optional[str] = None
     custom_query: Optional[str] = None
     mode: str = 'single'  # Add mode to preferences
+    logo_path: Optional[str] = None  # Add logo path to preferences
     # Advanced voice options for MiniMax TTS
     voice_id: Optional[str] = None
     emotion: Optional[str] = None
@@ -413,6 +414,9 @@ class ReelGeneratorUI:
         if preferences.voice_text:
             print(f"📝 Narration: '{preferences.voice_text[:50]}{'...' if len(preferences.voice_text) > 50 else ''}'")
         
+        if preferences.logo_path:
+            print(f"🖼️  Logo: {os.path.basename(preferences.logo_path)}")
+        
         print(f"🔍 Search Query: '{search_query}'")
         print("="*60)
 
@@ -553,6 +557,31 @@ class ReelGeneratorUI:
             mode_choice = self.get_user_input("Select generation mode", valid_modes)
             mode = "single" if mode_choice == "1" else "multi"
             
+            # Get optional logo path
+            print("\n🖼️  LOGO OVERLAY (OPTIONAL):")
+            print("-" * 30)
+            print("Add your logo to the top-right corner of the video")
+            print("Supported formats: PNG, JPG, GIF (transparent backgrounds recommended)")
+            logo_path_input = input("Enter the absolute path to your logo file (optional, press Enter to skip): ").strip()
+            
+            # Validate logo path if provided
+            if logo_path_input:
+                if os.path.exists(logo_path_input) and os.path.isfile(logo_path_input):
+                    # Check if it's an image file
+                    valid_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff']
+                    file_ext = os.path.splitext(logo_path_input)[1].lower()
+                    if file_ext in valid_extensions:
+                        print(f"✅ Logo found: {os.path.basename(logo_path_input)}")
+                        logo_path_validated = logo_path_input
+                    else:
+                        print(f"⚠️  Warning: '{file_ext}' might not be a supported image format")
+                        logo_path_validated = logo_path_input
+                else:
+                    print(f"❌ Logo file not found: {logo_path_input}")
+                    logo_path_validated = None
+            else:
+                logo_path_validated = None
+            
             # Create preferences object
             preferences = UserPreferences(
                 category=category_choice,
@@ -566,6 +595,7 @@ class ReelGeneratorUI:
                 voice_text=voice_text_input,
                 custom_query=custom_search,
                 mode=mode,
+                logo_path=logo_path_validated,
                 # Add advanced voice options if voice was selected
                 voice_id=advanced_voice_options.get("voice_id") if advanced_voice_options else None,
                 emotion=advanced_voice_options.get("emotion") if advanced_voice_options else None,
@@ -752,7 +782,8 @@ class ReelGeneratorUI:
                     query=final_search_query, 
                     audio_options=audio_options, 
                     per_page=per_page,
-                    mode=preferences.mode
+                    mode=preferences.mode,
+                    logo_path=preferences.logo_path
                 )
                 
                 # Display results
