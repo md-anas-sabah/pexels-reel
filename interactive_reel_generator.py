@@ -30,6 +30,11 @@ class UserPreferences:
     voice_text: Optional[str] = None
     custom_query: Optional[str] = None
     mode: str = 'single'  # Add mode to preferences
+    # Advanced voice options for MiniMax TTS
+    voice_id: Optional[str] = None
+    emotion: Optional[str] = None
+    language_boost: Optional[bool] = None
+    language: Optional[str] = None
 
 class KeywordEnhancementAgent:
     """AI agent using OpenAI GPT-3.5 to enhance search keywords for better video results"""
@@ -471,6 +476,7 @@ class ReelGeneratorUI:
             music_style_choice = None
             voice_style_choice = None
             voice_text_input = None
+            advanced_voice_options = None
             
             audio_option = self.audio_options[audio_choice]["option"]
             
@@ -484,6 +490,62 @@ class ReelGeneratorUI:
                 valid_voice = list(self.voice_styles.keys())
                 voice_style_choice = self.get_user_input("Select voice style", valid_voice)
                 voice_text_input = self.get_voice_text()
+                
+                if voice_text_input:
+                    # Advanced voice options for minimax-tts model
+                    print("\n" + "🎙️  ADVANCED VOICE CUSTOMIZATION")
+                    print("-" * 40)
+                    print("Configure advanced voice options for enhanced speech generation...")
+                    
+                    # Voice ID Selection
+                    print("\n🗣️ SELECT VOICE ID:")
+                    voice_ids = [
+                        "Custom", "Wise_Woman", "Friendly_Person", "Inspirational_Girl",
+                        "Deep_Voice_Man", "Calm_Women", "Casual_Guy", "Lively_Girl",
+                        "Patient_Man", "Young_Knight", "Determined_Man", "Lovely_Girl", "Decent_Boy"
+                    ]
+                    for i, name in enumerate(voice_ids, 1):
+                        print(f"{i}. {name}")
+                    
+                    voice_id_choice = self.get_user_input(
+                        "Enter the number for your chosen Voice ID (Default: 1)", 
+                        [str(i) for i in range(1, len(voice_ids) + 1)]
+                    )
+                    selected_voice_id = voice_ids[int(voice_id_choice) - 1]
+                    
+                    # Emotion Selection
+                    print("\n🎭 SELECT EMOTION:")
+                    emotions = ["Default", "happy", "sad", "angry", "fearful", "surprised", "disgusted", "neutral"]
+                    for i, emotion in enumerate(emotions, 1):
+                        print(f"{i}. {emotion}")
+                    
+                    emotion_choice = self.get_user_input(
+                        "Enter the number for your chosen Emotion (Default: 1)",
+                        [str(i) for i in range(1, len(emotions) + 1)]
+                    )
+                    selected_emotion = emotions[int(emotion_choice) - 1]
+                    
+                    # Language Boost Selection
+                    print("\n🌍 SELECT LANGUAGE:")
+                    languages = ["Default", "English", "Hindi", "Arabic", "Urdu"]
+                    for i, lang in enumerate(languages, 1):
+                        print(f"{i}. {lang}")
+                    
+                    language_choice = self.get_user_input(
+                        "Enter the number for your chosen Language (Default: 1)",
+                        [str(i) for i in range(1, len(languages) + 1)]
+                    )
+                    selected_language = languages[int(language_choice) - 1]
+                    
+                    # Store advanced voice options (will be added to preferences later)
+                    advanced_voice_options = {
+                        "voice_id": selected_voice_id,
+                        "emotion": selected_emotion if selected_emotion != "Default" else None,
+                        "language_boost": selected_language != "Default",
+                        "language": selected_language if selected_language != "Default" else None
+                    }
+                else:
+                    advanced_voice_options = None
             
             # Get video generation mode
             self.display_generation_modes()
@@ -503,7 +565,12 @@ class ReelGeneratorUI:
                 voice_style=voice_style_choice,
                 voice_text=voice_text_input,
                 custom_query=custom_search,
-                mode=mode
+                mode=mode,
+                # Add advanced voice options if voice was selected
+                voice_id=advanced_voice_options.get("voice_id") if advanced_voice_options else None,
+                emotion=advanced_voice_options.get("emotion") if advanced_voice_options else None,
+                language_boost=advanced_voice_options.get("language_boost") if advanced_voice_options else None,
+                language=advanced_voice_options.get("language") if advanced_voice_options else None
             )
             
             return preferences
@@ -636,6 +703,15 @@ class ReelGeneratorUI:
                 if preferences.voice_style and preferences.voice_text:
                     audio_options["voice_style"] = self.voice_styles[preferences.voice_style]["style"]
                     audio_options["voice_text"] = preferences.voice_text
+                    
+                    # Add advanced voice options if available
+                    if hasattr(preferences, 'voice_id'):
+                        audio_options["voice_id"] = preferences.voice_id
+                    if hasattr(preferences, 'emotion') and preferences.emotion:
+                        audio_options["emotion"] = preferences.emotion
+                    if hasattr(preferences, 'language_boost') and preferences.language_boost:
+                        audio_options["language_boost"] = preferences.language_boost
+                        audio_options["language"] = preferences.language
                 
                 print(f"🎵 Audio enabled: {audio_option_type}")
             else:

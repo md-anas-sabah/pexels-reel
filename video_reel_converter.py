@@ -20,6 +20,8 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import fal_client
+import time
+import random
 
 # Load environment variables
 load_dotenv()
@@ -70,6 +72,26 @@ class PexelsVideoSearchTool(BaseTool):
             }
             
             response = requests.get(f"{self._base_url}/search", headers=headers, params=params)
+            
+            # Log rate limit status
+            limit = response.headers.get('X-Ratelimit-Limit', 'unknown')
+            remaining = response.headers.get('X-Ratelimit-Remaining', 'unknown') 
+            reset = response.headers.get('X-Ratelimit-Reset', 'unknown')
+            
+            logger.info(f"📊 Pexels Rate Limit: {remaining}/{limit} remaining, resets at {reset}")
+            
+            if response.status_code == 429:
+                logger.error("❌ Pexels API rate limit exceeded!")
+                return json.dumps({
+                    "success": False,
+                    "error": "Rate limit exceeded. Try again later.",
+                    "rate_limit": {
+                        "limit": limit,
+                        "remaining": remaining,
+                        "reset": reset
+                    }
+                })
+            
             response.raise_for_status()
             
             data = response.json()
@@ -221,57 +243,134 @@ class FalMusicGenerationTool(BaseTool):
             })
 
 class FalTTSGenerationTool(BaseTool):
-    """Tool for generating Text-to-Speech using Orpheus TTS via Fal AI"""
+    """Tool for generating Text-to-Speech using MiniMax 2.5 HD via Fal AI"""
     name: str = "fal_tts_generation"
-    description: str = "Generate narrative voice-over using Orpheus TTS"
+    description: str = "Generate narrative voice-over using MiniMax 2.5 HD TTS"
     
     def __init__(self, fal_key: str):
         super().__init__()
         self._fal_key = fal_key
+        
+    def _translate_text(self, text: str, target_language: str) -> str:
+        """Simple translation using Google Translate API (free tier)"""
+        try:
+            import requests
+            from urllib.parse import quote
+            
+            # Language mapping for Google Translate API codes
+            lang_map = {
+                "Hindi": "hi",
+                "Arabic": "ar", 
+                "Urdu": "ur",
+                "English": "en"
+            }
+            
+            target_code = lang_map.get(target_language, "en")
+            if target_code == "en":
+                return text  # No translation needed
+                
+            # Use Google Translate's public API (free tier)
+            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl={target_code}&dt=t&q={quote(text)}"
+            
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                if result and result[0]:
+                    # Extract translated text
+                    translated = ""
+                    for item in result[0]:
+                        if item[0]:
+                            translated += item[0]
+                    
+                    if translated.strip():
+                        logger.info(f"✅ Translated to {target_language}: '{translated[:50]}...'")
+                        return translated.strip()
+                        
+        except Exception as e:
+            logger.error(f"❌ Translation failed: {e}")
+            
+        # Return original text if translation fails
+        logger.warning(f"⚠️ Using original English text (translation failed)")
+        return text
         # Configure fal_client with the key
         os.environ['FAL_KEY'] = fal_key
     
-    def _run(self, text_to_speak: str) -> str:
-        """Generate speech using Orpheus TTS"""
+    def _run(self, text: str, voice_id: Optional[str] = "Custom", emotion: Optional[str] = None, 
+             language_boost: Optional[bool] = False, language: Optional[str] = "English") -> str:
+        """Generate speech using MiniMax 2.5 HD TTS"""
         try:
             # Validate input
-            if not text_to_speak or not isinstance(text_to_speak, str):
+            if not text or not isinstance(text, str):
                 return json.dumps({
                     "success": False,
                     "error": "Invalid text input for TTS",
                     "type": "tts"
                 })
                 
-            logger.info(f"Generating TTS for text: '{text_to_speak[:50]}...'")
+            logger.info(f"Generating TTS for text: '{text[:50]}...'")
             
-            # Direct Fal API call using the correct format from documentation
+            # Auto-translate text if non-English language is selected
+            if language_boost and language and language != "English":
+                logger.info(f"🌍 Translating text to {language}...")
+                text = self._translate_text(text, language)
+            
+            # Build arguments for MiniMax 2.5 HD model according to API docs
+            arguments = {
+                "text": text
+            }
+            
+            # Voice setting configuration (as per MiniMax API docs)
+            voice_setting = {}
+            
+            # Add voice_id if specified and not default
+            if voice_id and voice_id != "Custom":
+                voice_setting["voice_id"] = voice_id
+                logger.info(f"Using voice_id: {voice_id}")
+                
+            # Add emotion if specified
+            if emotion and emotion.lower() != "default":
+                voice_setting["emotion"] = emotion.lower()
+                logger.info(f"Using emotion: {emotion.lower()}")
+                
+            # Only add voice_setting if we have actual settings
+            if voice_setting:
+                arguments["voice_setting"] = voice_setting
+                
+            # Add language boost if enabled (as per API docs format)
+            if language_boost and language and language != "Default":
+                arguments["language_boost"] = language
+                logger.info(f"Using language_boost: {language}")
+                
+            logger.info(f"🎙️ MiniMax TTS Arguments: {arguments}")
+            logger.info(f"🚀 Calling MiniMax 2.5 HD API: fal-ai/minimax/preview/speech-2.5-hd")
+            
+            # Call MiniMax 2.5 HD via fal_client
             result = fal_client.subscribe(
-                "fal-ai/orpheus-tts",
-                arguments={
-                    "text": text_to_speak,
-                    "voice": "tara",
-                    "temperature": 0.7,
-                    "repetition_penalty": 1.2
-                }
+                "fal-ai/minimax/preview/speech-2.5-hd",
+                arguments=arguments
             )
             
-            logger.info(f"TTS API response: {result}")
+            logger.info(f"✅ MiniMax TTS API Response: {result}")
             
             if result and 'audio' in result:
                 audio_url = result['audio']['url']
+                duration_ms = result.get('duration_ms', len(text) * 100)  # Fallback duration estimate
+                duration_seconds = duration_ms / 1000.0 if duration_ms else len(text) * 0.1
+                
                 logger.info(f"TTS generated successfully: {audio_url}")
                 return json.dumps({
                     "success": True,
                     "audio_url": audio_url,
-                    "duration": len(text_to_speak) * 0.1,  # Estimate duration
-                    "text": text_to_speak,
-                    "voice": "tara",
+                    "duration": duration_seconds,
+                    "text": text,
+                    "voice_id": voice_id,
+                    "emotion": emotion,
                     "type": "tts"
                 })
             else:
                 return json.dumps({
                     "success": False,
-                    "error": "No audio URL returned from Orpheus TTS",
+                    "error": "No audio URL returned from MiniMax TTS",
                     "result": result,
                     "type": "tts"
                 })
@@ -592,24 +691,114 @@ class VideoReelConverter:
         else:
             self.audio_agent = None
     
-    def download_video(self, video_url: str, filename: str) -> str:
-        """Download video from URL"""
+    def download_video(self, video_url: str, filename: str, max_retries: int = 3) -> str:
+        """Download video from URL with improved error handling and retries"""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'video/*,*/*;q=0.9',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Authorization': self.pexels_api_key,  # Add Pexels API key for authenticated downloads
+        }
+        
+        # Ensure temp directory exists and is accessible
+        if not os.path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir, mode=0o755, exist_ok=True)
+            logger.info(f"Created temp directory: {self.temp_dir}")
+        
+        file_path = os.path.join(self.temp_dir, filename)
+        
+        # Validate write permissions
         try:
-            response = requests.get(video_url, stream=True)
-            response.raise_for_status()
-            
-            file_path = os.path.join(self.temp_dir, filename)
-            
-            with open(file_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            logger.info(f"Video downloaded: {file_path}")
-            return file_path
-            
-        except Exception as e:
-            logger.error(f"Error downloading video: {e}")
-            raise
+            test_file = os.path.join(self.temp_dir, f"test_write_{os.getpid()}.tmp")
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except Exception as perm_error:
+            logger.error(f"❌ No write permission to temp directory {self.temp_dir}: {perm_error}")
+            # Create fallback temp directory
+            import tempfile
+            fallback_dir = tempfile.mkdtemp()
+            logger.info(f"Using fallback temp directory: {fallback_dir}")
+            file_path = os.path.join(fallback_dir, filename)
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Add small delay between attempts
+                if attempt > 0:
+                    wait_time = (2 ** attempt) + random.uniform(0.1, 1.0)  # Exponential backoff with jitter
+                    logger.info(f"⏳ Retrying download in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries + 1})")
+                    time.sleep(wait_time)
+                
+                logger.info(f"📥 Downloading video (attempt {attempt + 1}): {video_url}")
+                
+                response = requests.get(
+                    video_url, 
+                    stream=True, 
+                    headers=headers,
+                    timeout=30,
+                    allow_redirects=True
+                )
+                
+                # Check if we got forbidden error
+                if response.status_code == 403:
+                    logger.warning(f"⚠️ 403 Forbidden error for {video_url}")
+                    if attempt < max_retries:
+                        continue
+                        
+                # Check if we got rate limited
+                elif response.status_code == 429:
+                    # Respect Pexels rate limiting with proper backoff
+                    reset_time = response.headers.get('X-Ratelimit-Reset')
+                    remaining = response.headers.get('X-Ratelimit-Remaining', '0')
+                    
+                    if reset_time:
+                        import datetime
+                        reset_dt = datetime.datetime.fromtimestamp(int(reset_time))
+                        wait_seconds = (reset_dt - datetime.datetime.now()).total_seconds()
+                        wait_seconds = max(60, min(wait_seconds, 300))  # Wait 1-5 minutes max
+                        logger.warning(f"⚠️ Rate limited! Waiting {wait_seconds:.0f}s until reset. Remaining: {remaining}")
+                    else:
+                        wait_seconds = 60 + attempt * 30  # Exponential backoff
+                        logger.warning(f"⚠️ Rate limited! Waiting {wait_seconds}s...")
+                    
+                    if attempt < max_retries:
+                        time.sleep(wait_seconds)
+                        continue
+                        
+                response.raise_for_status()
+                
+                # Download the file
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                
+                with open(file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                
+                # Verify file was downloaded properly
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 1000:  # At least 1KB
+                    logger.info(f"✅ Video downloaded: {file_path} ({downloaded:,} bytes)")
+                    return file_path
+                else:
+                    logger.warning(f"⚠️ Downloaded file seems too small: {os.path.getsize(file_path) if os.path.exists(file_path) else 0} bytes")
+                    if attempt < max_retries:
+                        continue
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ Request error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    raise
+            except Exception as e:
+                logger.error(f"❌ Unexpected error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    raise
+        
+        raise Exception(f"Failed to download video after {max_retries + 1} attempts: {video_url}")
 
     def _get_audio_duration(self, audio_url: str) -> float:
         """Get the exact duration of an audio file from URL
@@ -813,7 +1002,21 @@ class VideoReelConverter:
                     logger.info(f"Generating TTS directly: {voice_text}")
                     try:
                         tts_tool = FalTTSGenerationTool(self.fal_key)
-                        voice_result = tts_tool._run(voice_text)
+                        # Extract advanced voice options
+                        voice_id = audio_options.get('voice_id', 'Custom')
+                        emotion = audio_options.get('emotion')
+                        language_boost = audio_options.get('language_boost', False)
+                        language = audio_options.get('language', 'English')
+                        
+                        logger.info(f"🎛️ Extracted voice options - voice_id: {voice_id}, emotion: {emotion}, language_boost: {language_boost}, language: {language}")
+                        
+                        voice_result = tts_tool._run(
+                            text=voice_text,
+                            voice_id=voice_id,
+                            emotion=emotion,
+                            language_boost=language_boost,
+                            language=language
+                        )
                         voice_data = json.loads(voice_result)
                         if voice_data.get("success"):
                             # Generate subtitles for TTS audio (MANDATORY when TTS is used)
@@ -1123,7 +1326,21 @@ class VideoReelConverter:
                     
                     try:
                         tts_tool = FalTTSGenerationTool(self.fal_key)
-                        voice_result = tts_tool._run(voice_text)
+                        # Extract advanced voice options for multi-mode
+                        voice_id = audio_options.get('voice_id', 'Custom')
+                        emotion = audio_options.get('emotion')
+                        language_boost = audio_options.get('language_boost', False)
+                        language = audio_options.get('language', 'English')
+                        
+                        logger.info(f"🎛️ [MULTI-MODE] Extracted voice options - voice_id: {voice_id}, emotion: {emotion}, language_boost: {language_boost}, language: {language}")
+                        
+                        voice_result = tts_tool._run(
+                            text=voice_text,
+                            voice_id=voice_id,
+                            emotion=emotion,
+                            language_boost=language_boost,
+                            language=language
+                        )
                         voice_data = json.loads(voice_result)
                         if voice_data.get("success"):
                             # Generate subtitles for TTS audio
@@ -1182,15 +1399,61 @@ class VideoReelConverter:
                 # Step 1: Download and process all videos to 720x1280
                 processed_clips = []
                 clips_dir = os.path.join(self.temp_dir, "clips")
-                os.makedirs(clips_dir, exist_ok=True)
+                
+                # Ensure clips directory has proper permissions
+                try:
+                    os.makedirs(clips_dir, mode=0o755, exist_ok=True)
+                    logger.info(f"✅ Created clips directory: {clips_dir}")
+                except Exception as dir_error:
+                    logger.error(f"❌ Failed to create clips directory: {dir_error}")
+                    # Create fallback directory
+                    import tempfile
+                    clips_dir = tempfile.mkdtemp(prefix="clips_")
+                    logger.info(f"Using fallback clips directory: {clips_dir}")
                 
                 for idx, video_data in enumerate(videos_data):
                     try:
                         logger.info(f"Processing clip {idx + 1}/{len(videos_data)}: ID {video_data['id']}")
                         
-                        # Download video
+                        # Add delay between downloads to respect rate limits
+                        if idx > 0:
+                            delay = 2 + random.uniform(0.5, 1.5)  # 2-3.5 second delay
+                            logger.info(f"⏳ Waiting {delay:.1f}s to respect Pexels rate limits...")
+                            time.sleep(delay)
+                        
+                        # Download video with improved error handling
                         video_filename = f"video_{video_data['id']}.mp4"
-                        video_path = self.download_video(video_data['download_url'], video_filename)
+                        try:
+                            video_path = self.download_video(video_data['download_url'], video_filename)
+                        except Exception as download_error:
+                            logger.error(f"❌ Failed to download clip {video_data['id']}: {download_error}")
+                            # Try alternative quality if available
+                            alt_urls = []
+                            video_id = video_data['id']
+                            base_url = f"https://videos.pexels.com/video-files/{video_id}/{video_id}"
+                            
+                            # Try different quality options
+                            quality_options = [
+                                f"{base_url}-uhd_2732_2048_25fps.mp4",
+                                f"{base_url}-hd_1366_768_30fps.mp4", 
+                                f"{base_url}-sd_640_360_30fps.mp4",
+                                f"{base_url}-mobile_240_426_30fps.mp4"
+                            ]
+                            
+                            video_path = None
+                            for alt_url in quality_options:
+                                try:
+                                    logger.info(f"🔄 Trying alternative quality: {alt_url}")
+                                    video_path = self.download_video(alt_url, video_filename)
+                                    logger.info(f"✅ Successfully downloaded alternative quality")
+                                    break
+                                except Exception as alt_error:
+                                    logger.debug(f"Alternative quality failed: {alt_error}")
+                                    continue
+                            
+                            if not video_path:
+                                logger.error(f"❌ All download attempts failed for clip {video_data['id']}")
+                                continue
                         
                         # Process to 720x1280
                         processed_filename = f"processed_{video_data['id']}.mp4"
@@ -1228,9 +1491,37 @@ class VideoReelConverter:
                         logger.error(f"Error processing clip {video_data.get('id', 'unknown')}: {e}")
                         continue
                 
-                if len(processed_clips) < 2:
-                    logger.error("Failed to process enough clips for multi-clip reel")
+                # More flexible clip count - work with what we have
+                if len(processed_clips) == 0:
+                    logger.error("❌ No clips were successfully processed")
                     return []
+                elif len(processed_clips) == 1:
+                    logger.warning("⚠️ Only 1 clip processed - falling back to single-clip mode")
+                    # Create single video result from the one working clip
+                    single_clip = processed_clips[0]
+                    final_output_path = os.path.join(self.temp_dir, f"reel_multi_fallback_{os.getpid()}.mp4")
+                    
+                    # Copy the single processed clip as the final output
+                    import shutil
+                    shutil.copy2(single_clip['path'], final_output_path)
+                    
+                    # Add audio if available
+                    if voice_data and voice_data.get("success"):
+                        logger.info("🎵 Adding audio to single clip fallback...")
+                        final_output_with_audio = os.path.join(self.temp_dir, f"reel_multi_with_audio_{os.getpid()}.mp4")
+                        self._add_audio_to_video(final_output_path, voice_data, final_output_with_audio)
+                        final_output_path = final_output_with_audio
+                    
+                    return [{
+                        'mode': 'multi',
+                        'output_file': final_output_path,
+                        'segment_count': 1,
+                        'segment_duration': voice_data.get('duration', 15) if voice_data else 15,
+                        'videos_used': [{'id': single_clip['id'], 'photographer': 'Various'}],
+                        'audio_results': [voice_data] if voice_data else []
+                    }]
+                else:
+                    logger.info(f"✅ Successfully processed {len(processed_clips)} clips for multi-clip reel")
                 
                 # Step 4: Trim segments from each processed clip using calculated duration
                 trimmed_clips = []
