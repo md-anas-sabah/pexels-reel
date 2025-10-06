@@ -29,7 +29,7 @@ class UserPreferences:
     voice_style: Optional[str] = None
     voice_text: Optional[str] = None
     custom_query: Optional[str] = None
-    mode: str = 'single'  # Add mode to preferences
+    mode: str = 'multi'  # Always use multi-clip mode
     logo_path: Optional[str] = None  # Add logo path to preferences
     # Advanced voice options for MiniMax TTS
     voice_id: Optional[str] = None
@@ -316,20 +316,15 @@ class ReelGeneratorUI:
         for key, voice in self.voice_styles.items():
             print(f"{key}. {voice['name']}")
 
-    def display_generation_modes(self):
-        """Display video generation mode options"""
-        print("\n🎬 VIDEO GENERATION MODE:")
-        print("-" * 30)
-        print("1. 📱 Single Mode - Individual videos (classic mode)")
-        print("   • Creates separate reels from different videos")
-        print("   • Best for showcasing specific content")
-        print("   • Traditional social media format")
-        print()
-        print("2. 🎞️  Multi Mode - Dynamic multi-clip reel (new!)")
-        print("   • Creates ONE reel from multiple video segments")
-        print("   • 3-4 second clips automatically trimmed & combined")
-        print("   • Perfect for viral, fast-paced content")
-        print("   • Ideal for Instagram Reels & TikTok")
+    def display_generation_mode_info(self):
+        """Display information about the video generation mode"""
+        print("\n🎞️  MULTI-CLIP REEL GENERATOR:")
+        print("-" * 40)
+        print("✅ Creates ONE dynamic reel from multiple video segments")
+        print("✅ 3-4 second clips automatically trimmed & combined") 
+        print("✅ Perfect for viral, fast-paced content")
+        print("✅ Ideal for Instagram Reels & TikTok")
+        print("✅ Video length automatically matches audio duration")
 
     def get_voice_text(self) -> str:
         """Get custom voice text from user"""
@@ -551,11 +546,9 @@ class ReelGeneratorUI:
                 else:
                     advanced_voice_options = None
             
-            # Get video generation mode
-            self.display_generation_modes()
-            valid_modes = ["1", "2"]
-            mode_choice = self.get_user_input("Select generation mode", valid_modes)
-            mode = "single" if mode_choice == "1" else "multi"
+            # Display generation mode info (multi only)
+            self.display_generation_mode_info()
+            mode = "multi"  # Always use multi mode
             
             # Get optional logo path
             print("\n🖼️  LOGO OVERLAY (OPTIONAL):")
@@ -769,13 +762,9 @@ class ReelGeneratorUI:
                     final_search_query = search_query
                     print(f"🔍 Using category-based search: '{final_search_query}'")
                 
-                # Determine per_page based on mode
-                if preferences.mode == 'multi':
-                    per_page = 6  # Fetch 6 videos for multi-clip segments
-                    print(f"🎞️  Multi-clip mode: Fetching {per_page} videos for dynamic reel")
-                else:
-                    per_page = 3  # Fetch 3 videos for individual processing
-                    print(f"📱 Single mode: Fetching {per_page} individual videos")
+                # Set optimal count for multi-clip mode
+                per_page = 6  # Fetch 6 videos for multi-clip segments
+                print(f"🎞️  Multi-clip mode: Fetching {per_page} videos for dynamic reel")
                 
                 # Use the enhanced conversion method
                 results = converter.convert_to_reel_with_audio(
@@ -878,21 +867,20 @@ class ReelGeneratorUI:
         
         print(f"\n🎨 Style: {self.styles[preferences.style]['name']}")
         print(f"🎭 Mood: {self.moods[preferences.mood]['name']}")
-        print(f"🎬 Mode: {preferences.mode.title()}")
+        print(f"🎬 Mode: Multi-Clip Reel (Dynamic)")
         
-        if preferences.mode == 'multi':
-            print("\n🎞️  Multi-Clip Features:")
-            print("  • Dynamic segment transitions")
-            print("  • Perfect for viral content")
-            print("  • Optimized for short attention spans")
-            print("  • Professional concatenation")
+        print("\n🎞️  Multi-Clip Features:")
+        print("  • Dynamic segment transitions")
+        print("  • Perfect for viral content")
+        print("  • Optimized for short attention spans")
+        print("  • Professional concatenation")
+        print("  • Video length matches audio duration")
         
         print("\n💡 Tips:")
         print("  • Always credit the original photographers")
         print("  • Videos are optimized for social media")
         print("  • Ready to upload directly!")
-        if preferences.mode == 'multi':
-            print("  • Multi-clip reels perform better on social media")
+        print("  • Multi-clip reels perform better on social media")
         print("\n" + "="*80)
 
 def main():
