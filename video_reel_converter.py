@@ -142,7 +142,7 @@ class VideoProcessingTool(BaseTool):
     name: str = "video_processing"
     description: str = "Process video by scaling to 720x1280 (9:16 aspect ratio) without cropping"
     
-    def _run(self, video_path: str, output_path: str, logo_path: str = None) -> str:
+    def _run(self, video_path: str, output_path: str, logo_path: str = "") -> str:
         """Process video with FFmpeg scaling only
         
         Args:
@@ -155,7 +155,7 @@ class VideoProcessingTool(BaseTool):
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
             # Build FFmpeg command based on logo presence
-            if logo_path and os.path.exists(logo_path):
+            if logo_path and logo_path.strip() and os.path.exists(logo_path):
                 # FFmpeg command with logo overlay using filter_complex
                 logger.info(f"Adding logo overlay from: {logo_path}")
                 cmd = [
