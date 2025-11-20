@@ -1,704 +1,707 @@
-# CLAUDE.md - AI Assistant Memory
+# AI Reel Generation Agent - Implementation Plan
 
 ## Project Overview
-**AI Video Reel Converter** - Advanced video processing system using CrewAI and Pexels API that converts videos to 9:16 aspect ratio (720x1280) with:
-- ✅ Smart object detection cropping
-- ✅ High-quality video processing 
-- ✅ AI-generated background music (Sonauto V2.2)
-- ✅ AI-generated voice narration (Orpheus TTS)
-- ✅ Professional audio mixing
-- 🎯 **Perfect for Instagram Reels, TikTok, and YouTube Shorts**
+This document outlines the complete implementation plan for building an AI Reel Generation Agent using Python, CrewAI, HeyGen API, and Submagic API. The system will automatically generate social media reels with intelligent decision-making capabilities.
 
-## Recent Work Done
+---
 
-### Issue Identified: Video Cropping Quality Problems
-**Date:** 2025-09-15
-**Problem:** Video cropping was producing bad quality, zoomed videos with poor visual output.
+## Architecture Overview
 
-### Root Cause Analysis
-Located in `video_reel_converter.py:313`, the FFmpeg command had several quality-degrading settings:
-- **CRF 23**: Too high, causing excessive compression
-- **Medium preset**: Not optimized for quality
-- **Simple scaling**: No quality preservation filters
-- **Missing quality flags**: No codec optimization
-
-### Solution Implemented
-**File Modified:** `/Users/anassabah/Desktop/pexels/video_reel_converter.py` (lines 310-323)
-
-**Before (Poor Quality):**
-```python
-cmd = [
-    "ffmpeg", "-i", video_path,
-    "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale=720:1280",
-    "-c:a", "aac",  # Audio codec
-    "-c:v", "libx264",  # Video codec
-    "-preset", "medium",  # Encoding preset
-    "-crf", "23",  # Quality setting
-    "-movflags", "+faststart",  # Optimize for streaming
-    "-y",  # Overwrite output file
-    output_path
-]
-```
-
-**After (High Quality):**
-```python
-cmd = [
-    "ffmpeg", "-i", video_path,
-    "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale=720:1280:flags=lanczos",
-    "-c:a", "aac", "-b:a", "128k",  # High quality audio
-    "-c:v", "libx264",  # Video codec
-    "-preset", "slower",  # Better quality preset
-    "-crf", "18",  # High quality setting (lower = better)
-    "-pix_fmt", "yuv420p",  # Compatibility format
-    "-profile:v", "high", "-level", "4.0",  # High profile for better quality
-    "-movflags", "+faststart",  # Optimize for streaming
-    "-y",  # Overwrite output file
-    output_path
-]
-```
-
-### Quality Improvements Made
-
-1. **CRF 23 → 18**: Significantly higher video quality (lower CRF = better quality)
-2. **Medium → Slower preset**: Better compression efficiency and quality
-3. **Added Lanczos scaling**: `flags=lanczos` for sharper, higher quality scaling
-4. **H.264 High Profile**: `profile:v high` and `level 4.0` for better encoding
-5. **Audio bitrate**: Increased to 128k for better audio quality
-6. **Pixel format**: `yuv420p` for maximum compatibility across platforms
-
-### Testing and Verification
-- ✅ Verified FFmpeg command structure is correct
-- ✅ Confirmed all quality parameters are properly applied
-- ✅ Tested ROI data format compatibility
-- ✅ Validated output will be much higher quality
-
-### Expected Results
-- **Before:** Compressed, blurry, poor quality cropped videos
-- **After:** High-quality, sharp videos with preserved detail and clarity
-- Videos cropped to 720x1280 will now maintain professional quality suitable for social media platforms
-
-## Technical Notes
-
-### FFmpeg Quality Settings Explained
-- **CRF (Constant Rate Factor)**: 0-51 scale, lower = better quality (18 is visually lossless)
-- **Preset**: Slower preset = better compression efficiency
-- **Lanczos scaling**: Mathematical algorithm for high-quality image scaling
-- **H.264 High Profile**: Advanced encoding features for better quality
+### Tech Stack
+- **Language**: Python 3.12.7
+- **Framework**: CrewAI (for multi-agent orchestration)
+- **APIs**: HeyGen (avatar videos), Submagic (video editing & stock content)
+- **Dependencies**: asyncio/multiprocessing for parallel processing
 
 ### Project Structure
 ```
-pexels/
-├── video_reel_converter.py      # Main converter with AI agents (MODIFIED)
-├── interactive_reel_generator.py # Interactive UI for user preferences
-├── main.py                      # Basic usage example
-├── demo_interactive.py          # Demo script
-├── test_converter.py           # Test utilities
-├── output_reels/               # Generated videos output
-└── .env                        # API keys
-```
-
-### Key Components
-
-**Video Processing:**
-1. **PexelsVideoSearchTool**: Searches Pexels API for videos
-2. **ObjectDetectionTool**: Uses OpenCV for smart cropping detection
-3. **VideoProcessingTool**: FFmpeg processing with high-quality settings
-
-**Audio Processing (NEW):**
-4. **FalMusicGenerationTool**: Generates background music via Sonauto V2.2
-5. **FalTTSGenerationTool**: Generates voice narration via Orpheus TTS
-6. **AudioMixingTool**: Mixes audio with video using FFmpeg
-
-**CrewAI Agents:**
-7. **VideoSearchAgent**: Finds optimal videos
-8. **ObjectDetectionAgent**: Determines cropping regions
-9. **VideoProcessingAgent**: Handles video conversion
-10. **AudioProductionAgent**: Orchestrates music and voice generation (NEW)
-
-### Commands for Testing
-```bash
-# Run interactive generator
-python interactive_reel_generator.py
-
-# Run basic converter
-python video_reel_converter.py
-
-# Test specific functionality
-python test_converter.py
-```
-
-### API Requirements
-- **Pexels API Key**: Required for video search and download
-- **Fal AI API Key**: Required for audio generation (music + TTS)
-- **FFmpeg**: Must be installed for video processing and audio mixing
-- **Python packages**: crewai, opencv-python, requests, python-dotenv, fal-client
-
-## Future Improvements Considered
-- Option for different quality presets (fast/balanced/quality)
-- Progressive quality based on input video resolution  
-- Batch processing optimizations
-- Real-time quality preview
-- Multiple language support for TTS
-- Custom music generation from user-uploaded audio samples
-- Advanced audio ducking (automatically lower music when voice plays)
-- Subtitle generation and overlay
-- Batch video processing with different audio for each video
-
-## Recent Audio Integration Work
-
-### Feature Added: Audio Generation Support
-**Date:** 2025-09-15  
-**Enhancement:** Added comprehensive audio generation capabilities using Fal AI
-
-### Audio Models Integrated
-
-1. **Music Generation**: Sonauto V2.2 (`sonauto/v2/text-to-music`)
-   - Cost: $0.075 per generation
-   - Creates full instrumental tracks
-   - Supports various music styles (upbeat, calm, cinematic, etc.)
-
-2. **Text-to-Speech**: Orpheus TTS (`fal-ai/orpheus-tts`)
-   - High-quality, empathetic speech generation
-   - Multiple voice styles (professional, friendly, energetic, etc.)
-   - Custom narration text input
-
-### New Components Added
-
-**Audio Tools (CrewAI Tools):**
-- `FalMusicGenerationTool` - Generates background music
-- `FalTTSGenerationTool` - Generates voice narration  
-- `AudioMixingTool` - Mixes audio with video using FFmpeg
-
-**Audio Agent:**
-- `AudioProductionAgent` - CrewAI agent that orchestrates audio generation
-
-**Enhanced Video Processing:**
-- `convert_to_reel_with_audio()` - New method supporting audio options
-- `_process_single_video_with_audio()` - Processes single video with audio
-
-### Interactive UI Enhancements
-
-**New Audio Options:**
-```
-🎵 AUDIO OPTIONS:
-1. No Audio (Video only)
-2. Background Music only
-3. Voice Narration only  
-4. Music + Voice Narration
-```
-
-**Music Styles:**
-- Upbeat & Energetic
-- Calm & Peaceful
-- Cinematic & Epic
-- Corporate & Professional
-- Hip-Hop & Urban
-- Pop & Catchy
-
-**Voice Styles:**
-- Professional Narrator
-- Friendly & Casual
-- Energetic & Excited
-- Calm & Soothing
-- Authoritative
-
-### Technical Implementation
-
-**Dependencies Added:**
-```python
-import fal_client  # For Fal AI integration
-```
-
-**Environment Variables:**
-```bash
-FAL_KEY=your_fal_api_key  # Required for audio generation
-```
-
-**Audio Workflow:**
-```
-1. Video Processing (crop/resize)
-2. Audio Generation (music/voice based on user choice)
-3. Audio Mixing (FFmpeg combines audio with video)
-4. Final Output (high-quality video with audio)
-```
-
-### Updated Project Structure
-```
-pexels/
-├── video_reel_converter.py      # Enhanced with audio tools & agent
-├── interactive_reel_generator.py # Enhanced with audio UI options
-├── test_audio_integration.py    # Audio integration test script
-├── main.py                      # Basic usage example
-├── demo_interactive.py          # Demo script
-├── test_converter.py           # Test utilities
-├── output_reels/               # Generated videos output (now with audio)
-└── .env                        # API keys (PEXELS + FAL)
-```
-
-### FFmpeg Audio Mixing Command
-High-quality audio mixing with volume control:
-```bash
-ffmpeg -i video.mp4 -i audio.mp3 \
-  -filter_complex "[1:a]volume=0.3[a1];[0:a][a1]amix=inputs=2:duration=first" \
-  -c:v copy -c:a aac -b:a 128k -shortest -y output.mp4
-```
-
-### Testing and Verification
-- ✅ All audio components initialize correctly
-- ✅ Fal AI integration working
-- ✅ Music generation (Sonauto V2.2) functional
-- ✅ TTS generation (Orpheus) functional
-- ✅ Audio mixing with FFmpeg operational
-- ✅ Interactive UI includes full audio options
-
-### Usage Examples
-
-**Music Only:**
-```python
-audio_options = {
-    "music": True,
-    "music_style": "upbeat energetic electronic"
-}
-```
-
-**Voice Only:**
-```python
-audio_options = {
-    "voice": True,
-    "voice_style": "professional",
-    "voice_text": "Welcome to this amazing content!"
-}
-```
-
-**Music + Voice:**
-```python
-audio_options = {
-    "music": True,
-    "music_style": "cinematic epic orchestral",
-    "voice": True,
-    "voice_style": "authoritative", 
-    "voice_text": "Discover the future of technology"
-}
-```
-
-### Cost Considerations
-- **Sonauto Music**: $0.075 per generation (~30 seconds)
-- **Orpheus TTS**: Based on character count
-- **Total cost per reel**: ~$0.08-0.15 depending on audio options
-
-## Current System Capabilities
-
-### ✅ **Fully Implemented Features:**
-1. **High-Quality Video Processing**
-   - Smart object detection for optimal cropping
-   - 9:16 aspect ratio conversion (720x1280)
-   - Professional FFmpeg encoding (CRF 18, Lanczos scaling)
-   - Original audio preservation
-
-2. **AI Audio Generation**
-   - Background music generation (Sonauto V2.2)
-   - Professional voice narration (Orpheus TTS)
-   - Advanced audio mixing with volume control
-   - 6 music styles + 5 voice styles
-
-3. **Interactive User Interface** 
-   - Category-based video selection (Nature, Urban, People, etc.)
-   - Mood and style customization
-   - Audio preference selection
-   - Custom search queries
-   - Automatic video quality scoring and selection
-
-4. **Social Media Ready Output**
-   - Perfect for Instagram Reels, TikTok, YouTube Shorts
-   - Optimized file sizes and streaming
-   - Professional quality suitable for commercial use
-
-### 💰 **Cost Structure**
-- **Video Only**: Free (uses Pexels free tier)
-- **With Background Music**: ~$0.075 per reel
-- **With Voice Narration**: ~$0.05 per 1000 characters
-- **Music + Voice**: ~$0.08-0.15 per reel
-
-### 🎯 **Production Ready**
-The system is now fully functional for creating professional-quality social media content with both visual and audio enhancement. Ready for production use.
-
-## Recent Fix: CrewAI Tool Validation Issue
-
-### Issue Identified: Tool Parameter Validation Errors
-**Date:** 2025-09-19
-**Problem:** CrewAI agents were passing tool parameters in wrong format, causing validation errors:
-```
-Input should be a valid string [type=string_type, input_value={'description': 'ocean wa...l video', 'type': 'str'}, input_type=dict]
-```
-
-### Root Cause Analysis
-CrewAI tools without explicit `args_schema` were causing parameter inference issues. Agents were passing:
-```json
-{"prompt": {"description": "text", "type": "str"}, "duration": {"description": 30}}
-```
-Instead of:
-```json
-{"prompt": "text", "duration": 30}
-```
-
-### Solution Implemented
-**Files Modified:** 
-- `video_reel_converter.py` (lines 54-64, 368, 428)
-
-**Added Pydantic Schemas:**
-1. `FalMusicInput` - Schema for music generation parameters
-2. `FalTTSInput` - Schema for TTS generation parameters
-3. `args_schema` attributes to both tools
-
-**Result:** Tools now receive correctly formatted parameters from CrewAI agents.
-
-## Audio Mixing Fix
-
-### Issue Identified: FFmpeg Audio Mixing Failure
-**Date:** 2025-09-22
-**Problem:** Audio mixing failing when video files have no audio stream, causing FFmpeg errors:
-```
-Stream specifier ':a' in filtergraph matches no streams
-```
-
-### Solution Implemented
-**File Modified:** `video_reel_converter.py` (lines 509-532)
-
-**Fix:** Added audio stream detection before mixing:
-- Uses `ffprobe` to check if video has audio stream
-- Two different FFmpeg commands based on video audio presence
-- Prevents credit waste from failed audio mixing
-
-**Result:** Audio mixing now works with both silent and audio-enabled videos.
-
-## Subtitle Styling Fix
-
-### Issue Identified: Black Background Boxes on Subtitles  
-**Date:** 2025-09-22
-**Problem:** Subtitles appeared with black rectangular backgrounds instead of clean white text with black outline
-**Root Cause:** `BorderStyle=3` in FFmpeg ASS styling forces background boxes, and font compatibility issues
-
-### Solution Implemented
-**File Modified:** `video_reel_converter.py` (lines 424-448)
-
-**Key Fixes:**
-1. **BorderStyle=3** → **BorderStyle=1** - Removes background boxes
-2. **Font:** Changed to Arial for maximum compatibility 
-3. **FontSize:** Optimized to 22px for clean appearance
-
-**Before (Black Boxes):**
-```python
-"BorderStyle=3,"                # Forced background box
-"Fontname=Montserrat Bold,"     # Compatibility issues
-"BackColour=&H00000000&,"       # Transparent background (ignored)
-```
-
-**After (Clean Outline):**
-```python
-"BorderStyle=1,"                # Outline WITHOUT background box
-"Fontname=Arial,"               # Maximum compatibility
-"Shadow=0,"                     # Clean outline only
-```
-
-### Result
-- ✅ Clean white text with black stroke outline (no background boxes)
-- ✅ Professional appearance matching social media standards
-- ✅ Cross-platform font compatibility with Arial
-- ✅ Perfect for Instagram Reels, TikTok, YouTube Shorts
-
-## Current Status Update
-
-### ✅ **Audio Generation: FULLY WORKING**
-- **Background Music**: Sonauto V2.2 working perfectly ✅
-- **TTS Generation**: Orpheus TTS working perfectly ✅
-- **Audio Mixing**: Fixed FFmpeg issues ✅
-- **DO NOT MODIFY AUDIO COMPONENTS** - They are production ready
-
-### ✅ **Subtitle Generation: FULLY WORKING**
-- **Word-Level Timestamps**: Fal AI Whisper integration ✅
-- **SRT File Generation**: Automatic word-sync subtitles ✅
-- **Professional Styling**: Clean white text with black outline ✅
-- **Social Media Ready**: Perfect for all platforms ✅
-
-### ✅ **Video Processing: FULLY WORKING**
-- **High-Quality Encoding**: CRF 18, Lanczos scaling ✅
-- **Smart Cropping**: Object detection for optimal framing ✅
-- **9:16 Conversion**: Perfect for social media ✅
-- **Multi-Clip Support**: Dynamic segment concatenation ✅
-
-### 🎯 **System Status: PRODUCTION READY**
-All major components are now working correctly:
-1. ✅ High-quality video processing with smart cropping
-2. ✅ AI audio generation (music + voice at optimized 15% background volume)
-3. ✅ Professional audio mixing with simultaneous voice + music
-4. ✅ Word-synchronized subtitles with clean styling
-5. ✅ Interactive user interface (streamlined multi-mode only)
-6. ✅ Optional logo overlay with smart positioning (80px, top-right)
-7. ✅ Dynamic multi-clip reel generation (primary mode)
-
-## Dynamic Multi-Clip Duration Matching
-
-### Issue Identified: Fixed Video Length vs Dynamic Audio Duration
-**Date:** 2025-09-23
-**Problem:** Multi-clip mode created fixed-duration videos (21 seconds from 6 clips × 3.5s each) regardless of voice-over length, causing audio truncation for longer scripts.
-
-### Root Cause Analysis
-The multi-clip workflow had several limitations:
-- **Fixed clip count**: Always fetched exactly 6 videos
-- **Fixed segment duration**: Always used 3.5 seconds per segment  
-- **Fixed total duration**: Always created ~21 second videos
-- **Audio generated after video**: Voice-over generated after video assembly, causing length mismatches
-
-### Solution Implemented
-**File Modified:** `video_reel_converter.py` (lines 17, 614-660, 1033, 1037, 1114-1178)
-
-**Key Changes:**
-
-1. **Added Math Import**: 
-```python
-import math  # For math.ceil() calculations
-```
-
-2. **Created Audio Duration Helper Method**:
-```python
-def _get_audio_duration(self, audio_url: str) -> float:
-    """Get exact duration of audio file using ffprobe"""
-    # Downloads audio temporarily and measures precise duration
-    # Returns duration in seconds as float
-```
-
-3. **Restructured Multi-Clip Workflow**:
-```python
-# NEW WORKFLOW ORDER:
-# 1. Generate voice-over FIRST (if requested)
-# 2. Measure audio duration precisely  
-# 3. Calculate required video clips: math.ceil(audio_duration / segment_duration)
-# 4. Fetch dynamic number of videos
-# 5. Create video matching audio length
-```
-
-4. **Dynamic Clip Calculation**:
-```python
-num_clips = 6  # Default
-segment_duration = 3.5  # Base segment length
-
-if voice_data and voice_data.get('success'):
-    audio_duration = self._get_audio_duration(voice_data['audio_url'])
-    if audio_duration > 0:
-        num_clips = math.ceil(audio_duration / segment_duration)
-        logger.info(f"Audio duration is {audio_duration:.2f}s. Calculated {num_clips} video clips needed.")
-```
-
-5. **Enhanced Video Fetching**:
-```python
-# Increased max limit from 7 to 15 videos for longer audio
-count = max(3, min(count, 15))
-
-# Improved task description to pass per_page parameter correctly
-description=f"""Search for {count} high-quality videos on Pexels using the query: "{query}". 
-Use the pexels_video_search tool with per_page={count} to fetch exactly {count} videos."""
-```
-
-6. **Adaptive Segment Duration**:
-```python
-# When fewer videos available than calculated, adjust segment duration
-actual_clips = len(videos_data)
-if voice_data and actual_clips < num_clips:
-    audio_duration = self._get_audio_duration(voice_data['audio_url'])
-    segment_duration = audio_duration / actual_clips
-    logger.info(f"Adjusted segment duration to {segment_duration:.2f}s to match {actual_clips} available videos")
-```
-
-### Example Before vs After
-
-**Before (Fixed Duration):**
-- Audio: 20.74 seconds of voice-over
-- Video: 21 seconds (6 × 3.5s segments) 
-- Result: Audio gets cut off at 21 seconds ❌
-
-**After (Dynamic Duration):**
-- Audio: 20.74 seconds of voice-over
-- Calculation: `math.ceil(20.74 / 3.5) = 6 clips needed`
-- Video: 21 seconds (6 × 3.5s segments) perfectly matched
-- Result: Full audio preserved with perfect sync ✅
-
-**For Longer Audio (45 seconds):**
-- Audio: 45 seconds of voice-over  
-- Calculation: `math.ceil(45 / 3.5) = 13 clips needed`
-- Video: 45.5 seconds (13 × 3.5s segments)
-- Result: Complete audio coverage ✅
-
-### Technical Implementation Details
-
-**Audio Duration Detection:**
-- Downloads audio file temporarily to `/tmp/`
-- Uses `ffprobe -v error -show_entries format=duration` for precise measurement
-- Cleans up temporary files automatically
-- Returns exact duration as float (e.g., 20.74 seconds)
-
-**Dynamic Video Assembly:**
-- Fetches exactly the calculated number of clips needed
-- Maintains 3.5s base segment duration for optimal pacing
-- Adjusts proportionally when fewer videos are available
-- Preserves multi-clip dynamic energy while matching audio length
-
-**Error Handling:**
-- Falls back to default 6 clips if audio duration detection fails
-- Handles cases where Pexels returns fewer videos than requested
-- Maintains minimum 2 clips requirement for multi-clip functionality
-- Graceful degradation with informative logging
-
-### Benefits Achieved
-
-1. **Perfect Audio-Video Sync**: Total video duration always matches voice-over length
-2. **No Audio Truncation**: Longer scripts get proportionally longer videos  
-3. **Optimal Pacing**: Maintains engaging 3.5s segment rhythm when possible
-4. **Resource Efficiency**: Only fetches the exact number of clips needed
-5. **Adaptive Scaling**: Works with any voice-over length (5s to 60s+)
-6. **Backward Compatibility**: Default behavior unchanged for music-only reels
-
-### Testing Results
-- ✅ 20.74s audio → 6 clips → 21s video (perfect match)
-- ✅ 45s audio → 13 clips → 45.5s video (full coverage)
-- ✅ 8s audio → 3 clips → 10.5s video (minimum viable)
-- ✅ Fallback to default when no voice-over specified
-- ✅ Proportional adjustment when fewer videos available
-
-## Latest Updates - Logo Overlay & UX Improvements
-
-### Logo Overlay Feature Implementation
-**Date:** 2025-09-24
-**Feature Added:** Optional logo overlay functionality with customizable positioning and sizing
-
-#### Implementation Details
-
-**Files Modified:**
-- `interactive_reel_generator.py` - Added logo path input prompt and validation
-- `video_reel_converter.py` - Enhanced FFmpeg processing for logo overlay
-
-**Key Features:**
-1. **Logo Input Prompt**: Optional absolute path input with file validation
-2. **Optimized Logo Size**: 80px width (reduced from 150px for subtler appearance)
-3. **Smart Positioning**: Top-right corner, 25px from top, 15px from right edge
-4. **Format Support**: PNG, JPG, GIF with transparent background recommendations
-5. **FFmpeg Integration**: Uses `filter_complex` for high-quality overlay processing
-
-**FFmpeg Command Structure:**
-```bash
-ffmpeg -i video.mp4 -i logo.png \
-  -filter_complex "[0:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:-1:-1:color=black[base]; [1:v]scale=80:-1[logo]; [base][logo]overlay=W-w-15:25" \
-  -c:v libx264 -preset slower -crf 18 output.mp4
-```
-
-**Implementation Logic:**
-- **Without Logo**: Uses standard `-vf` scaling filter
-- **With Logo**: Uses `-filter_complex` for multi-input processing
-- **Automatic Detection**: Validates logo file existence and format
-- **Error Handling**: Graceful fallback when logo path is invalid
-
-### Audio Mixing Volume Optimization
-**Date:** 2025-09-24  
-**Enhancement:** Improved background music volume control for better voice clarity
-
-#### Audio Volume Changes
-
-**Background Music Volume:**
-- **Before**: 30% volume (too loud)
-- **After**: 15% volume (subtle background)
-
-**Implementation:**
-```bash
-# New simultaneous mixing approach
-[2:a]volume=0.15[music_low];[1:a][music_low]amix=inputs=2:duration=first:dropout_transition=2
-```
-
-**Benefits:**
-- ✅ Voice narration remains crystal clear (100% volume)
-- ✅ Background music adds ambiance without overpowering
-- ✅ Professional audio balance for social media
-- ✅ Single-pass mixing (more efficient than sequential)
-
-### Single Mode Removal & UX Simplification
-**Date:** 2025-09-24
-**Change:** Streamlined user experience by removing single mode option
-
-#### Changes Made
-
-**Interactive UI Updates:**
-- ❌ Removed mode selection prompt
-- ✅ Always defaults to multi-clip mode
-- ✅ Added informational multi-clip feature overview
-- ✅ Simplified video count logic (always fetches 6 videos)
-
-**Benefits:**
-- 🎯 Eliminates user confusion about mode selection  
-- 🎞️ Ensures all users get best-performing multi-clip reels
-- ⚡ Faster setup process
-- 📱 Optimized for viral social media content
-
-**Backend Compatibility:**
-- ✅ `video_reel_converter.py` still supports both modes for existing integrations
-- ✅ No breaking changes to core functionality
-- ✅ Multi-mode features fully preserved
-
-### CrewAI Parameter Issue Resolution
-**Date:** 2025-09-24
-**Fix:** Resolved tool parameter validation errors in video search
-
-#### Root Cause & Solution
-
-**Problem:**
-```
-Error: the Action Input is not a valid key, value dictionary
-```
-
-**Root Cause:** CrewAI agents passing malformed parameters to `pexels_video_search` tool
-
-**Solution:** Direct tool calls bypassing CrewAI parameter parsing
-```python
-# Before: CrewAI task with parameter issues
-search_result = search_crew.kickoff()
-
-# After: Direct tool call
-search_result = self.pexels_tool._run(query=query, per_page=count)
-```
-
-**Result:** ✅ Video search working reliably in both single and multi modes
-
-### Current Usage Example
-**Updated User Flow (Simplified):**
-
-```
-🎬 AI REEL GENERATOR - PERSONALIZED VIDEO CREATOR
-📱 Create perfect Instagram Reels, TikTok videos, and YouTube Shorts
-
-🎞️  MULTI-CLIP REEL GENERATOR:
-✅ Creates ONE dynamic reel from multiple video segments
-✅ 3-4 second clips automatically trimmed & combined 
-✅ Perfect for viral, fast-paced content
-✅ Video length automatically matches audio duration
-
-🖼️  LOGO OVERLAY (OPTIONAL):
-Enter the absolute path to your logo file (optional, press Enter to skip):
-/Users/username/project/logo.png
-✅ Logo found: logo.png
-
-Result: Multi-clip reel with:
-🎬 Dynamic video segments (automatically calculated count)
-🎤 Voice narration (100% volume)  
-🎵 Background music (15% volume)
-📝 Word-synchronized subtitles
-🖼️ Logo overlay (80px, top-right corner)
+reel_generator/
+├── main.py                          # Entry point & orchestration
+├── requirements.txt                 # Dependencies
+├── .env                            # Environment variables (API keys)
+├── README.md                       # Documentation
+├── config/
+│   ├── __init__.py
+│   └── settings.py                 # Configuration & constants
+├── data/
+│   ├── __init__.py
+│   └── avatars.py                  # Avatar catalog
+├── utils/
+│   ├── __init__.py
+│   ├── media_scanner.py            # Video file scanning
+│   └── file_handler.py             # Output file management
+├── core/
+│   ├── __init__.py
+│   └── decision_logic.py           # Business logic & reel type selection
+├── agents/
+│   ├── __init__.py
+│   ├── media_analyzer_agent.py     # Analyzes input videos
+│   ├── strategy_agent.py           # Determines reel strategy
+│   ├── script_generation_agent.py  # Generates scripts for avatars
+│   ├── avatar_selector_agent.py    # Manages avatar selection
+│   ├── pipeline_execution_agent.py # Executes API workflows
+│   └── quality_check_agent.py      # Post-generation validation
+├── services/
+│   ├── __init__.py
+│   ├── heygen_service.py           # HeyGen API integration
+│   └── submagic_service.py         # Submagic API integration
+└── output/                         # Generated reels storage
+    └── [timestamp_folders]/
+        ├── final.mp4
+        ├── subtitles.srt
+        ├── thumbnail.jpg
+        └── metadata.json
 ```
 
 ---
-*Last updated: 2025-09-24*  
-*Status: PRODUCTION READY - ALL SYSTEMS OPERATIONAL*  
-*Audio Generation: WORKING PERFECTLY*  
-*Subtitle Generation: CLEAN STYLING FIXED*  
-*Video Processing: OPTIMIZED AND WORKING*  
-*Multi-Clip Duration Matching: IMPLEMENTED AND TESTED*  
-*Logo Overlay: FULLY IMPLEMENTED*  
-*Audio Volume Balance: OPTIMIZED*  
-*User Experience: STREAMLINED (MULTI-MODE ONLY)*  
-*System: READY FOR PRODUCTION USE*
+
+## Implementation Phases
+
+### PHASE 1: Foundation & Core Logic (Days 1-2)
+
+#### 1.1 Project Initialization
+**Tasks:**
+- Create project directory structure
+- Initialize Git repository
+- Set up Python virtual environment
+- Create `.gitignore` (exclude `.env`, `output/`, `__pycache__/`)
+
+**Commands:**
+```bash
+mkdir -p reel_generator/{config,data,utils,core,agents,services,output}
+cd reel_generator
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+```
+
+#### 1.2 Configuration Module (`config/settings.py`)
+**Implementation:**
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Settings:
+    # API Keys
+    HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY")
+    SUBMAGIC_API_KEY = os.getenv("SUBMAGIC_API_KEY")
+
+    # Credit Costs
+    CREDIT_COSTS = {
+        "avatar_reel": 2,
+        "edited_reel": 1,
+        "stock_reel": 1
+    }
+
+    # Processing Limits
+    MAX_PARALLEL_JOBS = 5
+    BULK_MODE_AVATAR_RATIO = 0.5  # 50% avatars in bulk mode
+
+    # File Paths
+    OUTPUT_DIR = "output"
+    SUPPORTED_VIDEO_FORMATS = [".mp4", ".mov", ".avi", ".mkv"]
+```
+
+#### 1.3 Media Scanner (`utils/media_scanner.py`)
+**Features:**
+- Scan directories for video files
+- Validate file formats
+- Return video count and file paths
+
+**Implementation:**
+```python
+import os
+from pathlib import Path
+from typing import List, Tuple
+from config.settings import Settings
+
+def scan_video_folder(path: str) -> Tuple[int, List[str]]:
+    """
+    Scans a folder for video files.
+
+    Returns:
+        Tuple of (count, list of file paths)
+    """
+    video_files = []
+    path_obj = Path(path)
+
+    if not path_obj.exists() or not path_obj.is_dir():
+        raise ValueError(f"Invalid directory: {path}")
+
+    for file in path_obj.rglob("*"):
+        if file.suffix.lower() in Settings.SUPPORTED_VIDEO_FORMATS:
+            video_files.append(str(file))
+
+    return len(video_files), video_files
+```
+
+#### 1.4 Decision Logic (`core/decision_logic.py`)
+**Business Rules:**
+- Single video (1) → Avatar OR Edited Reel
+- Multiple videos (2-5) → Avatar OR Edited Reel
+- Bulk mode (6+) → 50% Avatar, 50% Edited/Stock
+
+**Implementation:**
+```python
+from typing import Dict, List
+
+def get_reel_options(video_count: int) -> Dict[str, any]:
+    """
+    Determines available reel options based on video count.
+
+    Returns:
+        Dictionary with available options and costs
+    """
+    if video_count == 0:
+        return {
+            "options": ["stock_reel"],
+            "mode": "single",
+            "credits_required": 1
+        }
+    elif 1 <= video_count <= 5:
+        return {
+            "options": ["avatar_reel", "edited_reel"],
+            "mode": "single",
+            "credits_required": None  # Depends on user choice
+        }
+    else:  # 6+
+        return {
+            "options": ["bulk_processing"],
+            "mode": "bulk",
+            "avatar_count": video_count // 2,
+            "edited_stock_count": video_count - (video_count // 2),
+            "credits_required": (video_count // 2) * 2 + (video_count - video_count // 2)
+        }
+```
+
+#### 1.5 Avatar Data (`data/avatars.py`)
+**Structure:**
+```python
+AVATARS = [
+    {
+        "id": "avatar_001",
+        "name": "Professional Female",
+        "category": "business",
+        "thumbnail_url": "https://...",
+        "voice_id": "voice_001"
+    },
+    {
+        "id": "avatar_002",
+        "name": "Casual Male",
+        "category": "lifestyle",
+        "thumbnail_url": "https://...",
+        "voice_id": "voice_002"
+    },
+    # Add more avatars...
+]
+
+def get_avatar_by_id(avatar_id: str):
+    return next((a for a in AVATARS if a["id"] == avatar_id), None)
+```
+
+#### 1.6 Dependencies (`requirements.txt`)
+```txt
+crewai>=0.1.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+aiohttp>=3.9.0
+pydantic>=2.0.0
+```
+
+---
+
+### PHASE 2: CrewAI Agent Foundation (Days 3-4)
+
+#### 2.1 Agent Base Structure
+**Common Pattern:**
+```python
+from crewai import Agent, Task
+from typing import List
+
+class BaseReelAgent(Agent):
+    def __init__(self, role: str, goal: str, backstory: str):
+        super().__init__(
+            role=role,
+            goal=goal,
+            backstory=backstory,
+            verbose=True,
+            allow_delegation=False
+        )
+```
+
+#### 2.2 Media Analyzer Agent (`agents/media_analyzer_agent.py`)
+**Responsibilities:**
+- Analyze video content (duration, quality, format)
+- Extract metadata
+- Assess suitability for different reel types
+
+**Implementation:**
+```python
+class MediaAnalyzerAgent(BaseReelAgent):
+    def __init__(self):
+        super().__init__(
+            role="Video Content Analyzer",
+            goal="Analyze video files to determine optimal reel generation strategy",
+            backstory="Expert in video content analysis with deep understanding of social media trends"
+        )
+
+    def analyze_videos(self, video_paths: List[str]) -> dict:
+        # Implement video analysis logic
+        pass
+```
+
+#### 2.3 Strategy Agent (`agents/strategy_agent.py`)
+**Responsibilities:**
+- Decide between Avatar/Edited/Stock reels
+- Optimize credit usage
+- Apply business logic
+
+#### 2.4 Script Generation Agent (`agents/script_generation_agent.py`)
+**Responsibilities:**
+- Generate engaging scripts for avatar reels
+- Adapt tone based on content type
+- Optimize for platform algorithms
+
+---
+
+### PHASE 3: Avatar Selection System (Days 5-6)
+
+#### 3.1 Avatar Selector Agent (`agents/avatar_selector_agent.py`)
+**Features:**
+- Present avatar options to user
+- Filter by category/style
+- Store user preferences
+
+**Implementation:**
+```python
+class AvatarSelectorAgent(BaseReelAgent):
+    def __init__(self):
+        super().__init__(
+            role="Avatar Selection Specialist",
+            goal="Help users select the perfect avatar for their reel",
+            backstory="Expert in matching avatar personas with content types"
+        )
+
+    def present_avatars(self) -> str:
+        from data.avatars import AVATARS
+
+        print("\n=== Available Avatars ===")
+        for i, avatar in enumerate(AVATARS, 1):
+            print(f"{i}. {avatar['name']} ({avatar['category']})")
+
+        choice = int(input("\nSelect avatar number: ")) - 1
+        return AVATARS[choice]["id"]
+```
+
+#### 3.2 User Interaction Flow
+- Display avatar thumbnails/descriptions
+- Allow filtering by category
+- Validate selection
+- Store for reuse in bulk mode
+
+---
+
+### PHASE 4: API Integration (Days 7-10)
+
+#### 4.1 HeyGen Service (`services/heygen_service.py`)
+**Endpoints:**
+- Create avatar video
+- Generate voice-over
+- Check generation status
+- Download completed video
+
+**Implementation:**
+```python
+import aiohttp
+from config.settings import Settings
+
+class HeyGenService:
+    BASE_URL = "https://api.heygen.com/v1"
+
+    def __init__(self):
+        self.api_key = Settings.HEYGEN_API_KEY
+
+    async def create_avatar_video(self, avatar_id: str, script: str) -> dict:
+        """
+        Creates an avatar video with the given script.
+
+        Returns:
+            Job ID and status
+        """
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            payload = {
+                "avatar_id": avatar_id,
+                "script": script,
+                "voice_settings": {
+                    "speed": 1.0,
+                    "emotion": "neutral"
+                }
+            }
+
+            async with session.post(
+                f"{self.BASE_URL}/video/generate",
+                headers=headers,
+                json=payload
+            ) as response:
+                return await response.json()
+
+    async def get_video_status(self, job_id: str) -> dict:
+        # Poll for completion
+        pass
+
+    async def download_video(self, video_url: str, output_path: str):
+        # Download completed video
+        pass
+```
+
+#### 4.2 Submagic Service (`services/submagic_service.py`)
+**Endpoints:**
+- Upload video for editing
+- Apply editing presets
+- Generate stock reel from prompts
+- Download final output
+
+**Implementation:**
+```python
+class SubmagicService:
+    BASE_URL = "https://api.submagic.co/v1"
+
+    async def edit_reel(self, video_path: str, style: str) -> dict:
+        """
+        Uploads and edits a video with Submagic.
+        """
+        # Implement upload and editing logic
+        pass
+
+    async def create_stock_reel(self, prompt: str, duration: int) -> dict:
+        """
+        Generates a stock footage reel.
+        """
+        pass
+```
+
+#### 4.3 Pipeline Execution Agent (`agents/pipeline_execution_agent.py`)
+**Workflow Orchestration:**
+```python
+class PipelineExecutionAgent(BaseReelAgent):
+    def __init__(self):
+        self.heygen = HeyGenService()
+        self.submagic = SubmagicService()
+        super().__init__(
+            role="Pipeline Executor",
+            goal="Execute the chosen reel generation workflow efficiently",
+            backstory="Expert in API orchestration and workflow automation"
+        )
+
+    async def execute_avatar_workflow(self, avatar_id: str, script: str):
+        # 1. Generate avatar video (HeyGen)
+        # 2. Add subtitles/effects (Submagic)
+        # 3. Download final output
+        pass
+
+    async def execute_edited_workflow(self, video_path: str):
+        # 1. Upload to Submagic
+        # 2. Apply editing
+        # 3. Download final output
+        pass
+```
+
+---
+
+### PHASE 5: Advanced Features (Days 11-12)
+
+#### 5.1 Bulk Processing Mode (`main.py`)
+**Features:**
+- Process multiple videos in parallel
+- Enforce 50/50 avatar/edited split
+- Progress tracking
+- Error handling and retry logic
+
+**Implementation:**
+```python
+import asyncio
+from typing import List
+
+async def bulk_process(video_paths: List[str], selected_avatar: str):
+    """
+    Processes multiple videos in bulk mode.
+    """
+    total = len(video_paths)
+    avatar_count = total // 2
+    edited_count = total - avatar_count
+
+    # Split videos
+    avatar_videos = video_paths[:avatar_count]
+    edited_videos = video_paths[avatar_count:]
+
+    # Process in parallel (with concurrency limit)
+    semaphore = asyncio.Semaphore(Settings.MAX_PARALLEL_JOBS)
+
+    async def process_with_semaphore(coro):
+        async with semaphore:
+            return await coro
+
+    # Create tasks
+    tasks = []
+    for video in avatar_videos:
+        tasks.append(process_with_semaphore(
+            pipeline_agent.execute_avatar_workflow(selected_avatar, video)
+        ))
+
+    for video in edited_videos:
+        tasks.append(process_with_semaphore(
+            pipeline_agent.execute_edited_workflow(video)
+        ))
+
+    # Execute all tasks
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return results
+```
+
+#### 5.2 Progress Tracking
+- Real-time progress bars (using `tqdm`)
+- Status updates for each job
+- Credit consumption tracking
+
+---
+
+### PHASE 6: Quality Control & Finalization (Days 13-14)
+
+#### 6.1 Quality Check Agent (`agents/quality_check_agent.py`)
+**Validation Checks:**
+- Video duration (30-90 seconds optimal)
+- Subtitle synchronization
+- Audio quality
+- Resolution standards
+- File corruption check
+
+**Implementation:**
+```python
+class QualityCheckAgent(BaseReelAgent):
+    def __init__(self):
+        super().__init__(
+            role="Quality Assurance Specialist",
+            goal="Ensure all generated reels meet quality standards",
+            backstory="Perfectionist with expertise in video production quality"
+        )
+
+    def validate_reel(self, video_path: str) -> dict:
+        """
+        Runs quality checks on generated reel.
+
+        Returns:
+            Validation results with pass/fail status
+        """
+        checks = {
+            "duration_ok": self._check_duration(video_path),
+            "has_subtitles": self._check_subtitles(video_path),
+            "resolution_ok": self._check_resolution(video_path),
+            "audio_quality": self._check_audio(video_path)
+        }
+
+        return {
+            "passed": all(checks.values()),
+            "details": checks
+        }
+```
+
+#### 6.2 Output Packaging (`utils/file_handler.py`)
+**Output Structure:**
+```python
+import json
+from datetime import datetime
+from pathlib import Path
+
+class OutputHandler:
+    def __init__(self):
+        self.output_dir = Path(Settings.OUTPUT_DIR)
+
+    def create_output_folder(self) -> Path:
+        """
+        Creates a timestamped folder for reel output.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        folder = self.output_dir / timestamp
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def save_reel_package(self, folder: Path, video_path: str,
+                          subtitles: str, metadata: dict):
+        """
+        Saves all reel components to output folder.
+        """
+        # Copy final video
+        shutil.copy(video_path, folder / "final.mp4")
+
+        # Save subtitles
+        (folder / "subtitles.srt").write_text(subtitles)
+
+        # Save metadata
+        (folder / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+        # Generate and save thumbnail
+        self._generate_thumbnail(video_path, folder / "thumbnail.jpg")
+```
+
+---
+
+## Main Application Flow
+
+### Entry Point (`main.py`)
+```python
+import asyncio
+from utils.media_scanner import scan_video_folder
+from core.decision_logic import get_reel_options
+from agents.avatar_selector_agent import AvatarSelectorAgent
+from agents.pipeline_execution_agent import PipelineExecutionAgent
+from agents.quality_check_agent import QualityCheckAgent
+from utils.file_handler import OutputHandler
+
+async def main():
+    print("=== AI Reel Generation Agent ===\n")
+
+    # 1. Scan for videos
+    folder_path = input("Enter video folder path (or press Enter for stock reel): ")
+
+    if folder_path:
+        video_count, video_paths = scan_video_folder(folder_path)
+        print(f"Found {video_count} videos")
+    else:
+        video_count, video_paths = 0, []
+
+    # 2. Get reel options
+    options = get_reel_options(video_count)
+    print(f"\nMode: {options['mode']}")
+    print(f"Credits required: {options.get('credits_required', 'TBD')}")
+
+    # 3. Process based on mode
+    if options["mode"] == "single":
+        if "avatar_reel" in options["options"]:
+            avatar_agent = AvatarSelectorAgent()
+            selected_avatar = avatar_agent.present_avatars()
+
+        pipeline = PipelineExecutionAgent()
+        result = await pipeline.execute_workflow(video_paths, selected_avatar)
+
+    elif options["mode"] == "bulk":
+        avatar_agent = AvatarSelectorAgent()
+        selected_avatar = avatar_agent.present_avatars()
+
+        results = await bulk_process(video_paths, selected_avatar)
+
+    # 4. Quality check
+    qc_agent = QualityCheckAgent()
+    validation = qc_agent.validate_reel(result["video_path"])
+
+    if validation["passed"]:
+        print("\n✓ Quality check passed!")
+
+        # 5. Save output
+        output_handler = OutputHandler()
+        folder = output_handler.create_output_folder()
+        output_handler.save_reel_package(folder, result["video_path"],
+                                         result["subtitles"], result["metadata"])
+        print(f"Reel saved to: {folder}")
+    else:
+        print("\n✗ Quality check failed:", validation["details"])
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+- Test media scanner with various folder structures
+- Validate decision logic for all video count scenarios
+- Test API service methods with mocked responses
+
+### Integration Tests
+- End-to-end workflow for each reel type
+- Bulk processing with parallel execution
+- Error handling and retry mechanisms
+
+### Test Files Structure
+```
+tests/
+├── test_media_scanner.py
+├── test_decision_logic.py
+├── test_agents.py
+├── test_services.py
+└── test_integration.py
+```
+
+---
+
+## Deployment Checklist
+
+- [ ] Environment variables configured (.env file)
+- [ ] API keys validated
+- [ ] Virtual environment activated
+- [ ] All dependencies installed
+- [ ] Output directory writable
+- [ ] Test with sample videos
+- [ ] Error logging configured
+- [ ] Rate limiting implemented for APIs
+- [ ] Credit tracking system in place
+
+---
+
+## Future Enhancements
+
+1. **Web Interface**: Flask/FastAPI dashboard for easier interaction
+2. **Database**: Store reel history, user preferences, avatar choices
+3. **Advanced Analytics**: Track performance metrics of generated reels
+4. **Custom Avatars**: Allow users to create/upload custom avatars
+5. **Multi-Platform Export**: Auto-format for Instagram, TikTok, YouTube Shorts
+6. **Scheduling**: Queue reels for automatic posting
+7. **A/B Testing**: Generate variants for split testing
+
+---
+
+## Troubleshooting Guide
+
+### Common Issues
+
+**Issue**: API authentication fails
+- **Solution**: Verify API keys in `.env`, check key permissions
+
+**Issue**: Video processing timeout
+- **Solution**: Increase timeout settings, check internet connection
+
+**Issue**: Quality check fails
+- **Solution**: Review validation criteria, check source video quality
+
+**Issue**: Parallel processing errors
+- **Solution**: Reduce `MAX_PARALLEL_JOBS`, check system resources
+
+---
+
+## Credits & Cost Management
+
+### Credit Calculation
+```python
+def calculate_credits(reel_type: str, quantity: int = 1) -> int:
+    costs = Settings.CREDIT_COSTS
+    return costs.get(reel_type, 0) * quantity
+```
+
+### Usage Tracking
+- Log every API call with credit cost
+- Maintain running balance
+- Alert when credits are low
+- Generate usage reports
+
+---
+
+## Conclusion
+
+This implementation plan provides a comprehensive roadmap for building a production-ready AI Reel Generation Agent. The modular architecture allows for easy extension and maintenance, while the CrewAI framework enables intelligent, autonomous decision-making throughout the reel generation process.
+
+**Estimated Timeline**: 14 days for full implementation
+**Team Size**: 1-2 developers
+**Skill Level Required**: Intermediate Python, API integration experience
