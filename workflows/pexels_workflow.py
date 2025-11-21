@@ -112,62 +112,9 @@ class PexelsWorkflow:
             print()
 
             # ============================================================
-            # STEP 2: SEARCH PEXELS WITH AI KEYWORDS
+            # STEP 2: GENERATE VOICE NARRATION FIRST (to get duration)
             # ============================================================
-            print("🔍 STEP 2: Searching Pexels for videos...")
-            print("-" * 60)
-
-            # Join keywords for search query
-            search_query = " ".join(decisions['keywords'][:3])  # Use top 3 keywords
-            print(f"   Search query: '{search_query}'")
-
-            # Search Pexels
-            pexels_result = self.pexels_tool._run(search_query, per_page=5)
-
-            # PexelsVideoSearchTool returns a JSON-serialized list of videos
-            try:
-                videos = json.loads(pexels_result)
-
-                # If it's a string error message, not a list
-                if isinstance(videos, str):
-                    raise Exception(f"Pexels search failed: {videos}")
-
-                # If it's empty
-                if not videos:
-                    raise Exception("No videos found for search query")
-
-                print(f"   ✅ Found {len(videos)} videos")
-            except json.JSONDecodeError as e:
-                raise Exception(f"Invalid response from Pexels: {e}")
-
-            print()
-
-            # ============================================================
-            # STEP 3: GENERATE MUSIC (AI-CHOSEN STYLE)
-            # ============================================================
-            print("🎵 STEP 3: Generating background music...")
-            print("-" * 60)
-
-            # Create music prompt from AI decision
-            music_prompt = f"{decisions['music_style']} music for {decisions['category']}"
-            print(f"   Music prompt: '{music_prompt}'")
-
-            # FalMusicGenerationTool only takes prompt_text parameter
-            music_result = self.music_tool._run(prompt_text=music_prompt)
-            music_data = json.loads(music_result)
-
-            if not music_data.get("success"):
-                print(f"   ⚠️  Music generation failed: {music_data.get('error')}")
-                music_url = None
-            else:
-                music_url = music_data.get("audio_url")
-                print(f"   ✅ Music generated: {music_url[:60]}...")
-            print()
-
-            # ============================================================
-            # STEP 4: GENERATE VOICE NARRATION (AI-CHOSEN VOICE/EMOTION)
-            # ============================================================
-            print("🎤 STEP 4: Generating voice narration...")
+            print("🎤 STEP 2: Generating voice narration...")
             print("-" * 60)
 
             narration_text = decisions['narration']
@@ -191,20 +138,93 @@ class PexelsWorkflow:
             if not tts_data.get("success"):
                 print(f"   ⚠️  TTS generation failed: {tts_data.get('error')}")
                 tts_url = None
+                audio_duration = 20.0  # Fallback duration
             else:
                 tts_url = tts_data.get("audio_url")
+                # TTS tool returns "duration" in seconds
+                audio_duration = tts_data.get("duration", 20.0)
                 print(f"   ✅ Voice narration generated: {tts_url[:60]}...")
+                print(f"   📏 Audio duration: {audio_duration:.1f} seconds")
             print()
 
             # ============================================================
-            # STEP 5: MIX VIDEOS + MUSIC + NARRATION
+            # STEP 3: CALCULATE VIDEO COUNT (4 seconds per video)
             # ============================================================
-            print("🎬 STEP 5: Mixing videos with audio...")
+            import math
+            SEGMENT_DURATION = 4.0  # Each video clip = 4 seconds
+            num_videos_needed = math.ceil(audio_duration / SEGMENT_DURATION)
+
+            print(f"📊 STEP 3: Calculating video requirements...")
+            print("-" * 60)
+            print(f"   Audio duration: {audio_duration:.1f}s")
+            print(f"   Segment duration: {SEGMENT_DURATION}s")
+            print(f"   Videos needed: {num_videos_needed} clips")
+            print(f"   Total video length: {num_videos_needed * SEGMENT_DURATION}s")
+            print()
+
+            # ============================================================
+            # STEP 4: SEARCH PEXELS WITH AI KEYWORDS
+            # ============================================================
+            print(f"🔍 STEP 4: Searching Pexels for {num_videos_needed} videos...")
+            print("-" * 60)
+
+            # Join keywords for search query
+            search_query = " ".join(decisions['keywords'][:3])  # Use top 3 keywords
+            print(f"   Search query: '{search_query}'")
+
+            # Search Pexels (fetch more than needed for variety)
+            pexels_result = self.pexels_tool._run(search_query, per_page=num_videos_needed + 2)
+
+            # PexelsVideoSearchTool returns a JSON-serialized list of videos
+            try:
+                videos = json.loads(pexels_result)
+
+                # If it's a string error message, not a list
+                if isinstance(videos, str):
+                    raise Exception(f"Pexels search failed: {videos}")
+
+                # If it's empty
+                if not videos:
+                    raise Exception("No videos found for search query")
+
+                print(f"   ✅ Found {len(videos)} videos")
+            except json.JSONDecodeError as e:
+                raise Exception(f"Invalid response from Pexels: {e}")
+
+            print()
+
+            # ============================================================
+            # STEP 5: GENERATE MUSIC (AI-CHOSEN STYLE)
+            # ============================================================
+            print("🎵 STEP 5: Generating background music...")
+            print("-" * 60)
+
+            # Create music prompt from AI decision
+            music_prompt = f"{decisions['music_style']} music for {decisions['category']}"
+            print(f"   Music prompt: '{music_prompt}'")
+            print(f"   Duration needed: {audio_duration:.1f}s")
+
+            # FalMusicGenerationTool only takes prompt_text parameter
+            music_result = self.music_tool._run(prompt_text=music_prompt)
+            music_data = json.loads(music_result)
+
+            if not music_data.get("success"):
+                print(f"   ⚠️  Music generation failed: {music_data.get('error')}")
+                music_url = None
+            else:
+                music_url = music_data.get("audio_url")
+                print(f"   ✅ Music generated: {music_url[:60]}...")
+            print()
+
+            # ============================================================
+            # STEP 6: MIX VIDEOS + MUSIC + NARRATION
+            # ============================================================
+            print("🎬 STEP 6: Mixing videos with audio...")
             print("-" * 60)
 
             # Extract video download URLs from Pexels results
             video_download_urls = []
-            for video in videos[:5]:  # Use top 5 videos
+            for video in videos[:num_videos_needed]:  # Use exact count needed
                 download_url = video.get('download_url')
                 if download_url:
                     video_download_urls.append(download_url)
@@ -213,6 +233,8 @@ class PexelsWorkflow:
                 raise Exception("No video download URLs found")
 
             print(f"   Processing {len(video_download_urls)} videos...")
+            print(f"   Each video: {SEGMENT_DURATION}s")
+            print(f"   Total video: {len(video_download_urls) * SEGMENT_DURATION}s")
 
             # Create reel with VideoMixer
             from datetime import datetime
@@ -224,7 +246,7 @@ class PexelsWorkflow:
                 video_urls=video_download_urls,
                 music_url=music_url,
                 voice_url=tts_url,
-                segment_duration=5.0,  # 5 seconds per clip
+                segment_duration=SEGMENT_DURATION,  # 4 seconds per clip
                 output_filename=output_filename
             )
 
@@ -234,9 +256,9 @@ class PexelsWorkflow:
             print()
 
             # ============================================================
-            # STEP 6: UPLOAD TO SUPABASE
+            # STEP 7: UPLOAD TO SUPABASE
             # ============================================================
-            print("☁️  STEP 6: Uploading to Supabase...")
+            print("☁️  STEP 7: Uploading to Supabase...")
             print("-" * 60)
 
             try:
@@ -250,9 +272,9 @@ class PexelsWorkflow:
             print()
 
             # ============================================================
-            # STEP 7: SUBMIT TO SUBMAGIC (SUBTITLES + EFFECTS)
+            # STEP 8: SUBMIT TO SUBMAGIC (SUBTITLES + EFFECTS)
             # ============================================================
-            print("✨ STEP 7: Submitting to Submagic...")
+            print("✨ STEP 8: Submitting to Submagic...")
             print("-" * 60)
 
             final_video_url = None

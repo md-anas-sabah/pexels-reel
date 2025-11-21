@@ -340,6 +340,35 @@ class SubmagicService:
                 else:
                     raise Exception(f"Failed to download edited video: {e}")
 
+    def _download_with_wget(self, download_url: str, output_path: str) -> str:
+        """
+        Fallback download method using wget or curl (more reliable for large files)
+        """
+        import subprocess
+        import shutil
+
+        logger.info(f"📥 Using wget/curl for more reliable download...")
+
+        # Try wget first
+        if shutil.which('wget'):
+            cmd = ['wget', '-O', output_path, '--timeout=300', download_url]
+            logger.info(f"   Using wget...")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+            if result.returncode == 0:
+                logger.info(f"✅ Video downloaded with wget: {output_path}")
+                return output_path
+
+        # Try curl as fallback
+        if shutil.which('curl'):
+            cmd = ['curl', '-L', '-o', output_path, '--max-time', '300', download_url]
+            logger.info(f"   Using curl...")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+            if result.returncode == 0:
+                logger.info(f"✅ Video downloaded with curl: {output_path}")
+                return output_path
+
+        raise Exception("wget/curl download also failed")
+
     def process_video(
         self,
         video_url: str,
@@ -403,17 +432,19 @@ class SubmagicService:
         project_status = self.wait_for_completion(project_id)
 
         # Check if download URL is already in project status
-        # Try downloadUrl first, then directUrl as fallback
+        # Try downloadUrl first, then directUrl, then previewUrl as fallback
         download_url = (project_status.get('downloadUrl') or
                        project_status.get('directUrl') or
+                       project_status.get('previewUrl') or
                        project_status.get('exportUrl') or
                        project_status.get('outputUrl') or
                        project_status.get('url') or
                        project_status.get('video_url'))
 
-        # Store both URLs for fallback
+        # Store all available URLs for fallback
         download_url_primary = project_status.get('downloadUrl')
         download_url_direct = project_status.get('directUrl')
+        download_url_preview = project_status.get('previewUrl')
 
         if download_url:
             logger.info(f"✅ Download URL found in project status")
@@ -434,15 +465,61 @@ class SubmagicService:
             logger.error(f"   Project status fields: {list(project_status.keys())}")
             raise Exception("Export completed but no download URL provided in project status or export response")
 
-        # Step 4: Download final video (with fallback to directUrl if downloadUrl fails)
-        try:
-            final_path = self.download_video(download_url, output_path)
-        except Exception as e:
-            if download_url_direct and download_url_primary and download_url == download_url_primary:
-                logger.warning(f"⚠️  Primary download failed, trying directUrl...")
+        # Step 4: Download final video (with multiple fallback strategies)
+        download_success = False
+
+        # Try 1: Primary download URL (usually S3 accelerated)
+        if download_url_primary:
+            try:
+                logger.info(f"📥 Trying primary download URL (downloadUrl)...")
+                final_path = self.download_video(download_url_primary, output_path)
+                download_success = True
+            except Exception as e:
+                logger.warning(f"⚠️  Primary download failed: {str(e)[:100]}")
+
+        # Try 2: Direct URL (direct S3)
+        if not download_success and download_url_direct:
+            try:
+                logger.warning(f"⚠️  Trying direct URL (directUrl)...")
                 final_path = self.download_video(download_url_direct, output_path)
-            else:
-                raise e
+                download_success = True
+            except Exception as e:
+                logger.warning(f"⚠️  Direct download failed: {str(e)[:100]}")
+
+        # Try 3: Preview URL
+        if not download_success and download_url_preview:
+            try:
+                logger.warning(f"⚠️  Trying preview URL (previewUrl)...")
+                final_path = self.download_video(download_url_preview, output_path)
+                download_success = True
+            except Exception as e:
+                logger.warning(f"⚠️  Preview download failed: {str(e)[:100]}")
+
+        # Try 4: Use wget/curl as fallback (more reliable for large files)
+        if not download_success and download_url_direct:
+            try:
+                logger.warning(f"⚠️  Trying wget/curl fallback...")
+                final_path = self._download_with_wget(download_url_direct, output_path)
+                download_success = True
+            except Exception as e:
+                logger.warning(f"⚠️  wget/curl download failed: {str(e)[:100]}")
+
+        # If all downloads failed, provide manual download instructions
+        if not download_success:
+            logger.error(f"❌ All download attempts failed!")
+            logger.error(f"")
+            logger.error(f"📋 MANUAL DOWNLOAD REQUIRED:")
+            logger.error(f"   1. Open this URL in your browser:")
+            if download_url_direct:
+                logger.error(f"      {download_url_direct}")
+            elif download_url_preview:
+                logger.error(f"      {download_url_preview}")
+            elif download_url_primary:
+                logger.error(f"      {download_url_primary}")
+            logger.error(f"")
+            logger.error(f"   2. Save the video to: {output_path}")
+            logger.error(f"")
+            raise Exception(f"Automatic download failed. Please download manually from the URL above.")
 
         logger.info(f"🎉 Complete workflow finished successfully!")
         logger.info(f"   Final video saved: {final_path}")

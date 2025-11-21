@@ -303,17 +303,25 @@ class VideoMixer:
         duration: float,
         output_path: str
     ) -> bool:
-        """Trim video segment using FFmpeg"""
+        """Trim video segment using FFmpeg and convert to 9:16 (720x1280)"""
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            # FFmpeg filter to convert ANY aspect ratio to 9:16 (720x1280)
+            # Strategy: Scale to fill 1280 height, then crop center to 720 width
+            vf_filter = "scale=-2:1280,crop=720:1280:(in_w-720)/2:0"
+
+            logger.info(f"📐 Converting to 9:16 (720x1280) portrait format")
 
             cmd = [
                 "ffmpeg", "-i", video_path,
                 "-ss", str(start_time),
                 "-t", str(duration),
+                "-vf", vf_filter,  # Apply 9:16 conversion filter
                 "-c:v", "libx264",
                 "-preset", "faster",
                 "-crf", "18",
+                "-pix_fmt", "yuv420p",  # Ensure compatibility
                 "-an",  # Remove audio (we'll add it later)
                 "-y", output_path
             ]
