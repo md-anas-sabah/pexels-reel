@@ -56,7 +56,7 @@ class PexelsVideoSearchTool(BaseTool):
     
     def _run(self, query: str, per_page: int = 5) -> str:
         """Search for videos on Pexels
-        
+
         Args:
             query: Search query for videos
             per_page: Number of videos to fetch (default: 5)
@@ -66,9 +66,9 @@ class PexelsVideoSearchTool(BaseTool):
             params = {
                 "query": query,
                 "per_page": per_page,
-                "min_width": 720,    # Minimum width for 720p
-                "min_height": 1280,  # Minimum height for vertical content
-                "orientation": "portrait"  # Prefer portrait/vertical videos
+                "min_width": 1280,    # Minimum 1280 width for HD quality
+                # Removed min_height and orientation constraints to allow landscape videos
+                # Videos will be cropped/scaled to 9:16 during processing
             }
             
             response = requests.get(f"{self._base_url}/search", headers=headers, params=params)
@@ -93,20 +93,32 @@ class PexelsVideoSearchTool(BaseTool):
                 })
             
             response.raise_for_status()
-            
+
             data = response.json()
+            total_videos = data.get("total_results", 0)
+            returned_videos = len(data.get("videos", []))
+
+            logger.info(f"📹 Pexels returned {returned_videos} videos (total available: {total_videos})")
+
             videos = []
-            
+
             for video in data.get("videos", []):
                 # Find the best quality video file
                 video_files = video.get("video_files", [])
                 best_video = None
-                
+
+                # Try to find best quality MP4 (LESS STRICT - accept any quality)
                 for vf in video_files:
-                    if vf.get("file_type") == "video/mp4" and vf.get("quality") in ["hd", "sd"]:
+                    if vf.get("file_type") == "video/mp4":
+                        # Accept ANY quality, not just "hd" or "sd"
                         if not best_video or (vf.get("width", 0) > best_video.get("width", 0)):
                             best_video = vf
-                
+
+                if best_video:
+                    logger.info(f"   ✓ Video {video['id']}: {best_video['width']}x{best_video['height']} ({best_video.get('quality', 'unknown')})")
+                else:
+                    logger.warning(f"   ✗ Video {video['id']}: No suitable MP4 found")
+
                 if best_video:
                     video_info = VideoInfo(
                         id=video["id"],
@@ -119,7 +131,49 @@ class PexelsVideoSearchTool(BaseTool):
                         aspect_ratio=best_video["width"] / best_video["height"]
                     )
                     videos.append(video_info)
-            
+
+            # If no videos found with min_width constraint, try again without it
+            if len(videos) == 0 and returned_videos > 0:
+                logger.warning(f"⚠️  No videos matched quality filters from {returned_videos} results")
+                logger.warning(f"   Retrying without min_width constraint...")
+
+                # Retry without min_width
+                params_fallback = {"query": query, "per_page": per_page}
+                response2 = requests.get(f"{self._base_url}/search", headers=headers, params=params_fallback)
+                response2.raise_for_status()
+                data2 = response2.json()
+
+                logger.info(f"📹 Fallback search returned {len(data2.get('videos', []))} videos")
+
+                for video in data2.get("videos", []):
+                    video_files = video.get("video_files", [])
+                    best_video = None
+
+                    for vf in video_files:
+                        if vf.get("file_type") == "video/mp4":
+                            if not best_video or (vf.get("width", 0) > best_video.get("width", 0)):
+                                best_video = vf
+
+                    if best_video:
+                        video_info = VideoInfo(
+                            id=video["id"],
+                            width=best_video["width"],
+                            height=best_video["height"],
+                            duration=video["duration"],
+                            url=video["url"],
+                            download_url=best_video["link"],
+                            photographer=video["user"]["name"],
+                            aspect_ratio=best_video["width"] / best_video["height"]
+                        )
+                        videos.append(video_info)
+                        logger.info(f"   ✓ Found: {best_video['width']}x{best_video['height']}")
+
+                        # Stop after finding enough videos
+                        if len(videos) >= per_page:
+                            break
+
+            logger.info(f"✅ Final result: {len(videos)} usable videos found")
+
             return json.dumps([{
                 "id": v.id,
                 "width": v.width,

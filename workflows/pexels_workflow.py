@@ -255,37 +255,45 @@ class PexelsWorkflow:
             print("✨ STEP 7: Submitting to Submagic...")
             print("-" * 60)
 
-            try:
-                # Submit video to Submagic for auto-generated subtitles + effects
-                print(f"   Submitting video URL: {supabase_url[:60]}...")
-                submagic_job = self.submagic.submit_video(
-                    video_url=supabase_url,
-                    enable_subtitles=True  # Auto-generate subtitles from audio
-                )
+            final_video_url = None
+            final_output_path = None
 
-                job_id = submagic_job.get("job_id")
-                print(f"   ✅ Job submitted: {job_id}")
+            if not supabase_url:
+                print("   ⚠️  Skipping Submagic: No Supabase URL available")
+            else:
+                try:
+                    # Use complete workflow method for Submagic processing
+                    from datetime import datetime
+                    final_filename = f"final_with_subtitles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+                    final_output_path = self.output_dir / final_filename
 
-                # Wait for Submagic to complete processing
-                print("   ⏳ Processing (adding subtitles + effects)...")
-                final_video_url = self.submagic.wait_for_completion(job_id)
+                    print(f"   Submitting video URL: {supabase_url[:60]}...")
+                    print("   Settings: Iman template, Magic Zooms, Magic B-rolls (60%)")
 
-                print(f"   ✅ Submagic processing complete!")
-                print(f"   🔗 Final video: {final_video_url[:60]}...")
+                    # Complete end-to-end Submagic workflow
+                    final_path = self.submagic.process_video(
+                        video_url=supabase_url,
+                        output_path=str(final_output_path),
+                        title="AI Generated Reel",
+                        language=decisions['language'][:2].lower(),  # "en", "hi", "ar"
+                        template_name="Iman",
+                        magic_zooms=True,
+                        magic_brolls=True,
+                        magic_brolls_percentage=60
+                    )
 
-                # Download final video with subtitles
-                from datetime import datetime
-                final_filename = f"final_with_subtitles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-                final_output_path = self.output_dir / final_filename
+                    print(f"   ✅ Submagic processing complete!")
+                    print(f"   📥 Downloaded: {final_filename}")
 
-                self.submagic.download_video(final_video_url, str(final_output_path))
-                print(f"   📥 Downloaded: {final_filename}")
+                    # Update path reference
+                    final_output_path = Path(final_path)
+                    final_video_url = "processed"  # Mark as successful
 
-            except Exception as e:
-                print(f"   ⚠️  Submagic processing failed: {e}")
-                final_video_url = None
-                final_output_path = None
-                logger.warning(f"Submagic failed, using video without subtitles: {e}")
+                except Exception as e:
+                    print(f"   ⚠️  Submagic processing failed: {e}")
+                    final_video_url = None
+                    final_output_path = None
+                    logger.warning(f"Submagic failed, using video without subtitles: {e}")
 
             print()
 

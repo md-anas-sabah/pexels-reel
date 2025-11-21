@@ -158,12 +158,25 @@ Return ONLY valid JSON with these exact fields:
   "music_style": "Select ONE from: [Upbeat & Energetic, Calm & Peaceful, Cinematic & Epic, Corporate & Professional, Hip-Hop & Urban, Pop & Catchy]",
   "voice_style": "Select ONE from: [Professional Narrator, Friendly & Casual, Energetic & Excited, Calm & Soothing, Authoritative]",
   "narration": "Generate compelling 20-second TTS script (50-60 words) in {language}",
-  "voice_id": "Select ONE from: [Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy]",
+  "voice_id": "Select EXACTLY ONE from: [Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy] - DO NOT create new names",
   "emotion": "Select ONE from: [happy, sad, angry, fearful, surprised, disgusted, neutral]",
   "language": "{language}"
 }}
 
-IMPORTANT:
+CRITICAL RULES - VOICE ID:
+- ONLY use these EXACT voice_id values: Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy
+- DO NOT create custom voice names like "Energetic_Girl" or "Happy_Man"
+- DO NOT combine words differently
+- Copy the exact spelling from the list above
+
+VOICE ID SUGGESTIONS:
+- For energetic content: Lively_Girl, Casual_Guy
+- For calm content: Calm_Women, Wise_Woman, Patient_Man
+- For motivational: Inspirational_Girl, Determined_Man, Young_Knight
+- For friendly: Friendly_Person, Lovely_Girl, Decent_Boy
+- For authoritative: Deep_Voice_Man, Wise_Woman
+
+OTHER RULES:
 - Narration must be in {language}
 - Keep narration engaging and concise (50-60 words)
 - Match emotion and voice to the video mood
