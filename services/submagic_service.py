@@ -433,81 +433,45 @@ class SubmagicService:
         download_url_direct = project_status.get('directUrl')
         download_url_preview = project_status.get('previewUrl')
 
-        if download_url:
-            logger.info(f"✅ Download URL found in project status")
-            logger.info(f"   Primary URL: {'downloadUrl' if download_url_primary else 'directUrl'}")
-            logger.info(f"   Skipping export step (URL already available)")
-        else:
-            # Step 3: Export video if URL not in status
-            logger.info("📤 Download URL not in status, calling export endpoint...")
-            export_result = self.export_project(project_id)
-            download_url = (export_result.get('exportUrl') or
-                           export_result.get('downloadUrl') or
-                           export_result.get('url') or
-                           export_result.get('video_url') or
-                           export_result.get('output_url'))
+        # Step 3: ALWAYS call export (project URLs often timeout)
+        logger.info(f"📤 Calling export endpoint for fresh download URL...")
+        export_result = self.export_project(project_id)
+        logger.info(f"📋 Export response: {export_result}")
 
-        if not download_url:
-            logger.error(f"❌ No download URL found")
-            logger.error(f"   Project status fields: {list(project_status.keys())}")
-            raise Exception("Export completed but no download URL provided in project status or export response")
+        # Export is ASYNC - poll until ready
+        export_status = export_result.get('status', 'unknown')
+        if export_status == 'exporting':
+            logger.info(f"⏳ Export in progress, waiting for completion...")
+            # Poll project status until export is done
+            for i in range(20):  # Max 5 minutes (20 * 15s)
+                time.sleep(15)
+                status = self.get_project_status(project_id)
+                export_status = status.get('status', 'unknown')
+                logger.info(f"   Export status: {export_status}")
 
-        # Step 4: Download final video
-        # Use directUrl FIRST - it's more reliable than accelerated URL
-        download_success = False
+                if export_status in ['completed', 'ready', 'exported']:
+                    # Get fresh URLs after export
+                    download_url_direct = status.get('directUrl')
+                    download_url_primary = status.get('downloadUrl')
+                    logger.info(f"✅ Export complete! Getting fresh download URL...")
+                    break
 
-        # Try 1: Direct URL (direct S3 - MOST RELIABLE)
-        if download_url_direct:
-            try:
-                logger.info(f"📥 Downloading from direct S3 URL...")
-                final_path = self.download_video(download_url_direct, output_path, max_retries=1)
-                download_success = True
-            except Exception as e:
-                logger.warning(f"⚠️  Direct download failed: {str(e)[:100]}")
+        # Get the best URL (prefer directUrl)
+        final_url = download_url_direct or download_url_primary
 
-        # Try 2: Primary download URL (S3 accelerated - LESS RELIABLE)
-        if not download_success and download_url_primary:
-            try:
-                logger.warning(f"⚠️  Trying accelerated URL (slower)...")
-                final_path = self.download_video(download_url_primary, output_path, max_retries=1)
-                download_success = True
-            except Exception as e:
-                logger.warning(f"⚠️  Accelerated download failed: {str(e)[:100]}")
+        if not final_url:
+            logger.error(f"❌ No download URL available after export")
+            raise Exception("Export completed but no download URL provided")
 
-        # Try 3: Preview URL
-        if not download_success and download_url_preview:
-            try:
-                logger.warning(f"⚠️  Trying preview URL (previewUrl)...")
-                final_path = self.download_video(download_url_preview, output_path)
-                download_success = True
-            except Exception as e:
-                logger.warning(f"⚠️  Preview download failed: {str(e)[:100]}")
+        logger.info(f"📥 Downloading from: {final_url[:80]}...")
 
-        # Try 4: Use wget/curl as fallback (more reliable for large files)
-        if not download_success and download_url_direct:
-            try:
-                logger.warning(f"⚠️  Trying wget/curl fallback...")
-                final_path = self._download_with_wget(download_url_direct, output_path)
-                download_success = True
-            except Exception as e:
-                logger.warning(f"⚠️  wget/curl download failed: {str(e)[:100]}")
-
-        # If all downloads failed, provide manual download instructions
-        if not download_success:
-            logger.error(f"❌ All download attempts failed!")
-            logger.error(f"")
-            logger.error(f"📋 MANUAL DOWNLOAD REQUIRED:")
-            logger.error(f"   1. Open this URL in your browser:")
-            if download_url_direct:
-                logger.error(f"      {download_url_direct}")
-            elif download_url_preview:
-                logger.error(f"      {download_url_preview}")
-            elif download_url_primary:
-                logger.error(f"      {download_url_primary}")
-            logger.error(f"")
-            logger.error(f"   2. Save the video to: {output_path}")
-            logger.error(f"")
-            raise Exception(f"Automatic download failed. Please download manually from the URL above.")
+        # Download the video
+        try:
+            final_path = self.download_video(final_url, output_path)
+        except Exception as e:
+            # Fallback to wget/curl
+            logger.warning(f"⚠️  Python download failed, trying wget/curl...")
+            final_path = self._download_with_wget(final_url, output_path)
 
         logger.info(f"🎉 Complete workflow finished successfully!")
         logger.info(f"   Final video saved: {final_path}")
