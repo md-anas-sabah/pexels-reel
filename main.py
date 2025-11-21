@@ -85,23 +85,55 @@ def setup_environment():
     
     print("✅ Environment setup complete")
 
-def display_main_menu():
-    """Display the main menu"""
+def display_welcome():
+    """Display welcome message and get user's video idea"""
     print("\n" + "="*80)
-    print("🎬 AI VIDEO REEL GENERATOR - MAIN MENU")
+    print("🎬 AI VIDEO REEL GENERATOR")
     print("="*80)
-    print("📱 Transform any video into perfect Instagram Reels, TikTok & YouTube Shorts")
-    print("🎯 Smart object detection • 720x1280 output • Professional quality")
+    print("📱 Create perfect Instagram Reels, TikTok videos, and YouTube Shorts")
+    print("🎯 AI-powered • Professional quality • Multiple workflows")
     print("="*80)
-    
-    print("\n🚀 AVAILABLE MODES:")
-    print("1. 📋 Interactive Mode - Full customization with categories & preferences")
-    print("2. ⚡ Quick Mode - Fast conversion with simple search")
-    print("3. 🎮 Demo Mode - See features and examples")
-    print("4. 🔧 Settings - Check system status and configuration")
-    print("5. 📊 View Results - See previously generated reels")
-    print("6. ❓ Help - Usage guide and tips")
-    print("0. 🚪 Exit")
+
+    print("\n💡 TELL US ABOUT YOUR VIDEO IDEA:")
+    print("Examples:")
+    print('  • "I want a calming video about morning coffee routines"')
+    print('  • "Create an energetic workout motivation reel"')
+    print('  • "मुझे सुबह की योग प्रैक्टिस के बारे में एक वीडियो चाहिए"')
+    print()
+
+    user_idea = input("✏️  Your video idea: ").strip()
+
+    if not user_idea:
+        print("❌ Please provide a video idea to continue.")
+        return None
+
+    print(f"\n✅ Got it! Idea: '{user_idea}'")
+    return user_idea
+
+def display_workflow_menu():
+    """Display workflow selection menu"""
+    print("\n" + "="*80)
+    print("🚀 CHOOSE YOUR WORKFLOW:")
+    print("="*80)
+
+    print("\n1. 📁 LOCAL MEDIA WORKFLOW")
+    print("   → Process existing videos from your computer")
+    print("   → Add professional editing and effects")
+    print("   → Perfect for your own footage")
+
+    print("\n2. 🎨 PEXELS STOCK WORKFLOW ⭐ AI-DRIVEN")
+    print("   → Generate reels from stock footage")
+    print("   → AI automatically chooses everything")
+    print("   → Music + Voice narration + Subtitles")
+    print("   → Just one input - AI does the rest!")
+
+    print("\n3. 🤖 HEYGEN AVATAR WORKFLOW")
+    print("   → AI avatar speaks your script")
+    print("   → Combined with B-roll footage")
+    print("   → YouTube-style explainer videos")
+
+    print("\n0. 🔙 Back / Exit")
+    print("="*80)
 
 def interactive_mode():
     """Run the interactive reel generator"""
@@ -389,52 +421,138 @@ def export_configuration():
     
     print(f"✅ Configuration exported to: {config_file}")
 
+def run_local_media_workflow(user_idea: str):
+    """Execute Local Media Workflow"""
+    print("\n📁 LOCAL MEDIA WORKFLOW")
+    print("="*60)
+
+    directory = input("📂 Enter path to video directory: ").strip()
+
+    if not os.path.isdir(directory):
+        print("❌ Invalid directory path.")
+        return
+
+    print(f"\n🎬 Processing videos from: {directory}")
+    print(f"💡 User idea: {user_idea}")
+    print("\n⚠️  Note: Local media workflow implementation coming soon!")
+    print("This will process your existing videos with professional editing.")
+
+def run_pexels_workflow(user_idea: str):
+    """Execute Pexels Stock Workflow - AI-DRIVEN"""
+    print("\n🎨 PEXELS STOCK WORKFLOW - AI-DRIVEN")
+    print("="*60)
+    print(f"💡 Your idea: '{user_idea}'")
+    print()
+
+    print("⚡ AI will automatically:")
+    print("   ✓ Analyze your idea and extract keywords")
+    print("   ✓ Choose video category and search terms")
+    print("   ✓ Select music style")
+    print("   ✓ Pick voice style & emotion")
+    print("   ✓ Generate 20-second narration script")
+    print("   ✓ Detect language (Hindi/English)")
+    print("   ✓ Create professional reel with subtitles")
+    print()
+
+    confirm = input("🚀 Start AI video generation? (Y/n): ").strip().lower()
+    if confirm in ['n', 'no']:
+        print("❌ Workflow cancelled.")
+        return
+
+    # Execute AI-driven Pexels workflow
+    try:
+        from workflows.pexels_workflow import PexelsWorkflow
+
+        workflow = PexelsWorkflow()
+        result = workflow.execute(user_idea)
+
+        if result["success"]:
+            print(f"\n✅ Workflow completed successfully!")
+            print(f"   Status: {result.get('status')}")
+            print(f"   Message: {result.get('message')}")
+
+            if result.get('music_url'):
+                print(f"   🎵 Music: Generated")
+            if result.get('tts_url'):
+                print(f"   🎤 Voice: Generated")
+
+        else:
+            print(f"\n❌ Workflow failed: {result.get('error')}")
+
+    except ImportError as e:
+        print(f"\n❌ Error importing workflow: {e}")
+        print("   Make sure workflows/pexels_workflow.py exists")
+    except Exception as e:
+        print(f"\n❌ Error executing workflow: {e}")
+
+def run_heygen_workflow(user_idea: str):
+    """Execute HeyGen Avatar Workflow"""
+    print("\n🤖 HEYGEN AVATAR WORKFLOW")
+    print("="*60)
+    print(f"💡 Your idea: '{user_idea}'")
+    print()
+
+    print("⚠️  Note: HeyGen Avatar workflow implementation coming soon!")
+    print("This will create YouTube-style videos with AI avatar + B-roll footage.")
+
 def main():
     """Main function to run the application"""
-    # Check if running from correct directory
-    if not Path("video_reel_converter.py").exists():
-        print("❌ Please run from the project directory containing video_reel_converter.py")
-        sys.exit(1)
-    
     # Initial setup
     print("🚀 AI Video Reel Generator - Starting up...")
-    
-    if not check_dependencies():
-        print("\n❌ Dependency check failed. Please fix the issues above.")
-        sys.exit(1)
-    
+
+    # Note: Removed dependency check for video_reel_converter.py since we're refactoring
+    # if not check_dependencies():
+    #     print("\n❌ Dependency check failed. Please fix the issues above.")
+    #     sys.exit(1)
+
     setup_environment()
-    
+
     # Main loop
     while True:
         try:
-            display_main_menu()
-            choice = input("\n🎯 Select an option (0-6): ").strip()
-            
+            # Step 1: Get user's video idea
+            user_idea = display_welcome()
+
+            if not user_idea:
+                retry = input("\n🔄 Try again? (Y/n): ").strip().lower()
+                if retry in ['n', 'no']:
+                    print("\n👋 Thanks for using AI Video Reel Generator!")
+                    break
+                continue
+
+            # Step 2: Show workflow options
+            display_workflow_menu()
+
+            choice = input("\n🎯 Select workflow (0-3): ").strip()
+
             if choice == "1":
-                interactive_mode()
+                run_local_media_workflow(user_idea)
             elif choice == "2":
-                quick_mode()
+                run_pexels_workflow(user_idea)
             elif choice == "3":
-                demo_mode()
-            elif choice == "4":
-                settings_mode()
-            elif choice == "5":
-                view_results()
-            elif choice == "6":
-                help_mode()
+                run_heygen_workflow(user_idea)
             elif choice == "0":
                 print("\n👋 Thanks for using AI Video Reel Generator!")
                 print("🎬 Keep creating amazing content!")
                 break
             else:
-                print("❌ Invalid choice. Please select 0-6.")
-                
+                print("❌ Invalid choice. Please select 0-3.")
+
+            # Ask if user wants to create another reel
+            print("\n" + "="*60)
+            another = input("🔄 Create another reel? (Y/n): ").strip().lower()
+            if another in ['n', 'no']:
+                print("\n👋 Thanks for using AI Video Reel Generator!")
+                print("🎬 Keep creating amazing content!")
+                break
+
         except KeyboardInterrupt:
             print("\n\n👋 Goodbye!")
             break
         except Exception as e:
             print(f"\n❌ Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
             print("🔄 Returning to main menu...")
 
 if __name__ == "__main__":

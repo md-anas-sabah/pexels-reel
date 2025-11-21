@@ -30,6 +30,12 @@ class Config:
     # Fal AI API (Audio Generation - Music & TTS)
     FAL_AI_API_KEY = os.getenv("FAL_AI_API_KEY") or os.getenv("FAL_KEY")
 
+    # OpenAI API (AI Agent - GPT-3.5-turbo for decisions)
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+    # Anthropic API (AI Agent - Claude for prompt refinement)
+    ANTHROPIC_API_KEY = os.getenv("CLAUDE_API_KEY")  # Maps from CLAUDE_API_KEY in .env
+
     # Supabase (File Storage for Public URLs)
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -42,6 +48,39 @@ class Config:
         {"id": "josh-incasualtshirt-20220820", "name": "Josh (Casual Male)"},
         {"id": "monica-inpinkskirt-20220820", "name": "Monica (Business)"},
         {"id": "wayne-incasualsuit-20220820", "name": "Wayne (Corporate)"},
+    ]
+
+    # ==================== AI AGENT OPTIONS ====================
+
+    # Voice IDs for TTS (Fal AI)
+    VOICE_IDS = [
+        "Wise_Woman", "Friendly_Person", "Inspirational_Girl",
+        "Deep_Voice_Man", "Calm_Women", "Casual_Guy", "Lively_Girl",
+        "Patient_Man", "Young_Knight", "Determined_Man", "Lovely_Girl", "Decent_Boy"
+    ]
+
+    # Voice Emotions
+    EMOTIONS = ["happy", "sad", "angry", "fearful", "surprised", "disgusted", "neutral"]
+
+    # Supported Languages
+    LANGUAGES = ["English", "Hindi", "Arabic", "Urdu"]
+
+    # Music Styles
+    MUSIC_STYLES = [
+        "Upbeat & Energetic", "Calm & Peaceful", "Cinematic & Epic",
+        "Corporate & Professional", "Hip-Hop & Urban", "Pop & Catchy"
+    ]
+
+    # Voice Styles
+    VOICE_STYLES = [
+        "Professional Narrator", "Friendly & Casual", "Energetic & Excited",
+        "Calm & Soothing", "Authoritative"
+    ]
+
+    # Video Categories
+    VIDEO_CATEGORIES = [
+        "Nature & Lifestyle", "Urban & City Life", "People & Activities",
+        "Abstract & Creative", "Seasonal & Weather"
     ]
 
     # ==================== VIDEO PROCESSING SETTINGS ====================

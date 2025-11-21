@@ -52,13 +52,18 @@ class FileUploader:
         """Initialize Supabase client"""
         try:
             from supabase import create_client, Client
+
+            # Simple initialization - let the library handle defaults
             self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
             logger.info(f"✓ Supabase client initialized for bucket: {self.bucket_name}")
+
         except ImportError:
             logger.error("Supabase library not installed. Run: pip install supabase")
             self.use_supabase = False
+
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
+            logger.warning("Will fall back to temporary file hosting")
             self.use_supabase = False
 
     def upload(self, file_path: str) -> str:
@@ -282,6 +287,7 @@ def create_supabase_bucket_if_not_exists():
 
     try:
         from supabase import create_client
+
         supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
 
         # Try to create bucket

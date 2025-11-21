@@ -14,6 +14,11 @@ torch>=2.0.0
 torchvision>=0.15.0
 ultralytics>=8.0.0
 
+# AI APIs (for AI Agent Service)
+openai>=2.0.0           # GPT-3.5-turbo for decision engine (fixed proxy issue)
+anthropic>=0.74.0       # Claude for prompt refinement (fixed proxy issue)
+langdetect>=1.0.9       # Language detection (Hindi/English/etc)
+
 # CrewAI (multi-agent orchestration)
 crewai>=0.28.8
 crewai[tools]>=0.28.8
@@ -22,9 +27,9 @@ crewai[tools]>=0.28.8
 aiohttp==3.9.1
 
 # Supabase client (for file storage)
-supabase==2.3.0
-postgrest-py==0.13.0
-storage3==0.8.0
+supabase>=2.24.0        # Updated to fix proxy compatibility issues
+storage3>=2.24.0
+postgrest>=2.24.0
 
 # Fal AI client (for audio generation)
 fal-client>=0.4.0
