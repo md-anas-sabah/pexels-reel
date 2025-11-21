@@ -157,7 +157,7 @@ Return ONLY valid JSON with these exact fields:
   "duration": "short/medium/long (short=5-15s, medium=15-30s, long=30+s)",
   "music_style": "Select ONE from: [Upbeat & Energetic, Calm & Peaceful, Cinematic & Epic, Corporate & Professional, Hip-Hop & Urban, Pop & Catchy]",
   "voice_style": "Select ONE from: [Professional Narrator, Friendly & Casual, Energetic & Excited, Calm & Soothing, Authoritative]",
-  "narration": "Generate compelling 20-second TTS script (50-60 words) in {language}",
+  "narration": "Generate compelling 20-25 second TTS script (MUST be 75-95 words) in {language}",
   "voice_id": "Select EXACTLY ONE from: [Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy] - DO NOT create new names",
   "emotion": "Select ONE from: [happy, sad, angry, fearful, surprised, disgusted, neutral]",
   "language": "{language}"
@@ -178,10 +178,17 @@ VOICE ID SUGGESTIONS:
 
 OTHER RULES:
 - Narration must be in {language}
-- Keep narration engaging and concise (50-60 words)
+- Narration MUST be 75-95 words (approximately 20-25 seconds when spoken)
+- DO NOT write short scripts - aim for full 20-25 seconds of content
 - Match emotion and voice to the video mood
 - Keywords should be Pexels-friendly search terms
-- Return ONLY the JSON object, no additional text"""
+- Return ONLY the JSON object, no additional text
+
+IMPORTANT - SCRIPT LENGTH:
+- Minimum: 75 words
+- Target: 85 words
+- Maximum: 95 words
+- This ensures 20-25 seconds of audio"""
 
         user_prompt = f"""Video Idea: "{refined_idea}"
 
