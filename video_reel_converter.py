@@ -340,11 +340,16 @@ class FalTTSGenerationTool(BaseTool):
             
             # Voice setting configuration (as per MiniMax API docs)
             voice_setting = {}
-            
+
             # Add voice_id if specified and not default
             if voice_id and voice_id != "Custom":
-                voice_setting["voice_id"] = voice_id
-                logger.info(f"Using voice_id: {voice_id}")
+                # Map voice_id to actual API voice_id
+                from config import Config
+                mapped_voice_id = Config.VOICE_ID_API_MAPPING.get(voice_id, "Wise_Woman")
+                if mapped_voice_id != voice_id:
+                    logger.info(f"ℹ️  Mapping voice '{voice_id}' → '{mapped_voice_id}'")
+                voice_setting["voice_id"] = mapped_voice_id
+                logger.info(f"Using voice_id: {mapped_voice_id}")
                 
             # Add emotion if specified
             if emotion and emotion.lower() != "default":

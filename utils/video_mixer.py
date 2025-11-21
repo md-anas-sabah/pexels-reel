@@ -319,50 +319,79 @@ class VideoMixer:
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                logger.error(f"❌ FFmpeg trim failed for {video_path}")
+                logger.error(f"STDERR: {result.stderr[:300]}")
+
             return result.returncode == 0
 
         except Exception as e:
-            logger.error(f"Error trimming: {e}")
+            logger.error(f"❌ Exception trimming {video_path}: {e}")
             return False
 
     def _concat_clips(self, clip_paths: List[str], output_path: str) -> bool:
-        """Concatenate video clips using FFmpeg"""
+        """Concatenate video clips using FFmpeg concat demuxer (more reliable)"""
         try:
             if len(clip_paths) < 2:
                 logger.error("Need at least 2 clips")
                 return False
 
+            # Verify all input files exist
+            for clip in clip_paths:
+                if not os.path.exists(clip):
+                    logger.error(f"❌ Input file does not exist: {clip}")
+                    return False
+
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            # Build concat filter
-            inputs = []
-            filter_complex = []
+            # Create concat file list (more reliable than filter_complex)
+            concat_file = os.path.join(os.path.dirname(output_path), "concat_list.txt")
+            with open(concat_file, 'w') as f:
+                for clip_path in clip_paths:
+                    # Use absolute paths and escape single quotes
+                    abs_path = os.path.abspath(clip_path)
+                    f.write(f"file '{abs_path}'\n")
 
-            for i, clip_path in enumerate(clip_paths):
-                inputs.extend(["-i", clip_path])
-                filter_complex.append(f"[{i}:v]")
+            logger.info(f"Created concat list: {concat_file}")
 
-            concat_filter = f"{''.join(filter_complex)}concat=n={len(clip_paths)}:v=1:a=0[v]"
-
+            # Use concat demuxer (simpler and more reliable)
             cmd = [
-                "ffmpeg"
-            ] + inputs + [
-                "-filter_complex", concat_filter,
-                "-map", "[v]",
+                "ffmpeg",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_file,
                 "-c:v", "libx264",
-                "-preset", "slower",
-                "-crf", "18",
+                "-preset", "medium",
+                "-crf", "23",
                 "-pix_fmt", "yuv420p",
-                "-profile:v", "high",
-                "-level", "4.0",
                 "-y", output_path
             ]
 
+            logger.info(f"Running FFmpeg concat (demuxer method)...")
+            logger.info(f"Command: {' '.join(cmd)}")
+
             result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
+
+            # Clean up concat file
+            try:
+                os.remove(concat_file)
+            except:
+                pass
+
+            if result.returncode == 0:
+                logger.info(f"✅ Successfully concatenated {len(clip_paths)} clips")
+                return True
+            else:
+                logger.error(f"❌ FFmpeg concat failed with return code {result.returncode}")
+                logger.error(f"STDERR (full): {result.stderr}")
+                logger.error(f"STDOUT (full): {result.stdout}")
+                return False
 
         except Exception as e:
-            logger.error(f"Error concatenating: {e}")
+            logger.error(f"❌ Exception during concatenation: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
 
 

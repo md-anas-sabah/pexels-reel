@@ -59,6 +59,23 @@ class Config:
         "Patient_Man", "Young_Knight", "Determined_Man", "Lovely_Girl", "Decent_Boy"
     ]
 
+    # Voice ID Mapping - Maps our custom IDs to actual MiniMax API voice IDs
+    # Only "Wise_Woman" is confirmed to work in MiniMax API
+    VOICE_ID_API_MAPPING = {
+        "Calm_Women": "Wise_Woman",
+        "Friendly_Person": "Wise_Woman",
+        "Inspirational_Girl": "Wise_Woman",
+        "Deep_Voice_Man": "Wise_Woman",
+        "Casual_Guy": "Wise_Woman",
+        "Lively_Girl": "Wise_Woman",
+        "Patient_Man": "Wise_Woman",
+        "Young_Knight": "Wise_Woman",
+        "Determined_Man": "Wise_Woman",
+        "Lovely_Girl": "Wise_Woman",
+        "Decent_Boy": "Wise_Woman",
+        "Wise_Woman": "Wise_Woman"
+    }
+
     # Voice Emotions
     EMOTIONS = ["happy", "sad", "angry", "fearful", "surprised", "disgusted", "neutral"]
 
