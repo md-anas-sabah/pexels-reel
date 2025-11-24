@@ -116,10 +116,11 @@ def display_workflow_menu():
     print("🚀 CHOOSE YOUR WORKFLOW:")
     print("="*80)
 
-    print("\n1. 📁 LOCAL MEDIA WORKFLOW")
+    print("\n1. 📁 LOCAL MEDIA WORKFLOW ⭐ AI-DRIVEN")
     print("   → Process existing videos from your computer")
-    print("   → Add professional editing and effects")
-    print("   → Perfect for your own footage")
+    print("   → Dynamic trimming (20s total / number of clips)")
+    print("   → AI-generated music + voice narration")
+    print("   → Professional subtitles via Submagic")
 
     print("\n2. 🎨 PEXELS STOCK WORKFLOW ⭐ AI-DRIVEN")
     print("   → Generate reels from stock footage")
@@ -422,20 +423,89 @@ def export_configuration():
     print(f"✅ Configuration exported to: {config_file}")
 
 def run_local_media_workflow(user_idea: str):
-    """Execute Local Media Workflow"""
-    print("\n📁 LOCAL MEDIA WORKFLOW")
+    """Execute Local Media Workflow - AI-DRIVEN"""
+    print("\n📁 LOCAL MEDIA WORKFLOW - AI-DRIVEN")
     print("="*60)
+    print(f"💡 Your idea: '{user_idea}'")
+    print()
 
     directory = input("📂 Enter path to video directory: ").strip()
 
-    if not os.path.isdir(directory):
-        print("❌ Invalid directory path.")
+    if not directory:
+        print("❌ No directory path provided.")
         return
 
-    print(f"\n🎬 Processing videos from: {directory}")
-    print(f"💡 User idea: {user_idea}")
-    print("\n⚠️  Note: Local media workflow implementation coming soon!")
-    print("This will process your existing videos with professional editing.")
+    if not os.path.isdir(directory):
+        print(f"❌ Invalid directory path: {directory}")
+        return
+
+    # Count video files
+    from config import Config
+    video_count = len([f for f in os.listdir(directory)
+                       if os.path.splitext(f)[1].lower() in Config.SUPPORTED_VIDEO_FORMATS])
+
+    if video_count == 0:
+        print(f"❌ No video files found in {directory}")
+        print(f"   Supported formats: {', '.join(Config.SUPPORTED_VIDEO_FORMATS)}")
+        return
+
+    print(f"\n📹 Found {video_count} video(s) in directory")
+
+    # Calculate dynamic duration
+    target_total = 20.0
+    clip_duration = target_total / video_count
+    print(f"⏱️  Dynamic trimming: {target_total}s / {video_count} clips = {clip_duration:.2f}s each")
+    print()
+
+    print("⚡ AI will automatically:")
+    print("   ✓ Analyze your idea")
+    print("   ✓ Select music style")
+    print("   ✓ Pick voice style & emotion")
+    print("   ✓ Generate narration script")
+    print("   ✓ Detect language (Hindi/English)")
+    print(f"   ✓ Trim each video to {clip_duration:.2f}s")
+    print("   ✓ Create professional reel with subtitles")
+    print()
+
+    confirm = input("🚀 Start AI video generation? (Y/n): ").strip().lower()
+    if confirm in ['n', 'no']:
+        print("❌ Workflow cancelled.")
+        return
+
+    # Execute AI-driven Local Media workflow
+    try:
+        from workflows.local_media_workflow import LocalMediaWorkflow
+
+        workflow = LocalMediaWorkflow()
+        result = workflow.execute(
+            user_idea=user_idea,
+            video_directory=directory
+        )
+
+        if result["success"]:
+            print(f"\n✅ Workflow completed successfully!")
+            print(f"   Status: {result.get('status')}")
+            print(f"   Message: {result.get('message')}")
+            print(f"   Videos processed: {result.get('num_videos')}")
+            print(f"   Clip duration: {result.get('clip_duration', 0):.2f}s each")
+
+            if result.get('music_url'):
+                print(f"   🎵 Music: Generated")
+            if result.get('tts_url'):
+                print(f"   🎤 Voice: Generated")
+            if result.get('final_output_path'):
+                print(f"   📁 Output: {result.get('final_output_path')}")
+
+        else:
+            print(f"\n❌ Workflow failed: {result.get('error')}")
+
+    except ImportError as e:
+        print(f"\n❌ Error importing workflow: {e}")
+        print("   Make sure workflows/local_media_workflow.py exists")
+    except Exception as e:
+        print(f"\n❌ Error executing workflow: {e}")
+        import traceback
+        traceback.print_exc()
 
 def run_pexels_workflow(user_idea: str):
     """Execute Pexels Stock Workflow - AI-DRIVEN"""

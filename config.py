@@ -97,7 +97,8 @@ class Config:
     # Video Categories
     VIDEO_CATEGORIES = [
         "Nature & Lifestyle", "Urban & City Life", "People & Activities",
-        "Abstract & Creative", "Seasonal & Weather"
+        "Abstract & Creative", "Seasonal & Weather", "Corporate & Professional",
+        "Technology & Innovation"
     ]
 
     # ==================== VIDEO PROCESSING SETTINGS ====================

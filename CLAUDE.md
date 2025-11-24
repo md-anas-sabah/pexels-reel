@@ -39,17 +39,17 @@
 - [x] Update `services/audio_service.py` with voice_id, emotion, language parameters
 - [x] Test end-to-end AI-driven Pexels workflow
 
-### 🔄 IN PROGRESS (0%)
+### ✅ COMPLETED - Local Media Workflow
 
-**Local Media Workflow**
+**Local Media Workflow** ✅
 
-- [ ] Create `workflows/local_media_workflow.py`
-- [ ] Implement directory scanning for video files
-- [ ] Implement video trimming (10s per clip)
-- [ ] Implement video concatenation
-- [ ] Integrate Supabase upload
-- [ ] Integrate Submagic for subtitles/effects
-- [ ] Update `main.py` to include local media workflow option
+- [x] Create `workflows/local_media_workflow.py`
+- [x] Implement directory scanning for video files
+- [x] Implement dynamic video trimming (20s total / number of clips, e.g., 4 videos = 5s each, 5 videos = 4s each)
+- [x] Implement video concatenation
+- [x] Integrate Supabase upload
+- [x] Integrate Submagic for subtitles/effects
+- [x] Update `main.py` to include local media workflow option
 
 ### 🔜 PENDING (0%)
 
@@ -420,6 +420,7 @@ pip install -r requirements.txt
 **`utils/video_processor.py`**
 
 - `trim_video(path, duration)` - Trim to specified seconds
+- `calculate_clip_duration(num_clips, target_total=20)` - Calculate per-clip duration (e.g., 4 clips = 5s, 5 clips = 4s)
 - `concatenate_videos(paths, output)` - Stitch multiple videos
 - `add_audio(video_path, audio_path)` - Mix video + audio track
 - `get_video_info(path)` - Extract duration, dimensions, fps
@@ -435,7 +436,7 @@ pip install -r requirements.txt
 
 #### 3.1 `workflows/local_media_workflow.py`
 
-**Steps**: Scan directory → Trim videos (10s each) → Concatenate → Upload to Supabase → Submit to Submagic (with subtitles) → Download final output
+**Steps**: Scan directory → Trim videos (dynamic: 20s total / number of clips) → Concatenate → Generate audio (music + voice) → Mix → Upload to Supabase → Submit to Submagic (with subtitles) → Download final output
 
 #### 3.2 `workflows/pexels_workflow.py` - AI-DRIVEN WORKFLOW ⭐
 
