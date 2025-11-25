@@ -401,47 +401,90 @@ class VideoMixer:
         duration: float,
         output_path: str
     ) -> bool:
-        """Trim video segment using FFmpeg and convert to 9:16 (720x1280)"""
+        """
+        Trim video segment using FFmpeg and convert to 9:16 (720x1280).
+
+        CRITICAL: All clips are encoded with IDENTICAL parameters to ensure
+        successful concatenation using concat demuxer.
+
+        Encoding parameters:
+        - Resolution: 720x1280 (9:16 portrait)
+        - Codec: libx264
+        - Preset: medium (balance speed/quality)
+        - CRF: 23 (good quality)
+        - Pixel format: yuv420p (maximum compatibility)
+        - Frame rate: 30 fps (standardized)
+        - No audio (removed with -an)
+        """
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             # FFmpeg filter to convert ANY aspect ratio to 9:16 (720x1280)
             # Strategy: Scale to fill 1280 height, then crop center to 720 width
-            vf_filter = "scale=-2:1280,crop=720:1280:(in_w-720)/2:0"
+            # Also standardize frame rate to 30 fps for consistency
+            vf_filter = "scale=-2:1280,crop=720:1280:(in_w-720)/2:0,fps=30"
 
-            logger.info(f"📐 Converting to 9:16 (720x1280) portrait format")
+            logger.info(f"📐 Converting to 9:16 (720x1280) @ 30fps")
 
             cmd = [
-                "ffmpeg", "-i", video_path,
+                "ffmpeg",
+                "-i", video_path,
                 "-ss", str(start_time),
                 "-t", str(duration),
-                "-vf", vf_filter,  # Apply 9:16 conversion filter
+                "-vf", vf_filter,  # Apply 9:16 conversion + fps standardization
                 "-c:v", "libx264",
-                "-preset", "faster",
-                "-crf", "18",
-                "-pix_fmt", "yuv420p",  # Ensure compatibility
+                "-preset", "medium",  # Consistent preset for all clips
+                "-crf", "23",  # Consistent quality
+                "-pix_fmt", "yuv420p",  # Maximum compatibility
                 "-an",  # Remove audio (we'll add it later)
+                "-movflags", "+faststart",  # Optimize for streaming
                 "-y", output_path
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
-            if result.returncode != 0:
-                logger.error(f"❌ FFmpeg trim failed for {video_path}")
+            if result.returncode == 0:
+                # Verify output file exists and has content
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    logger.info(f"✅ Trimmed: {Path(output_path).name}")
+                    return True
+                else:
+                    logger.error(f"❌ Output file empty or missing")
+                    return False
+            else:
+                logger.error(f"❌ FFmpeg trim failed for {Path(video_path).name}")
                 logger.error(f"STDERR: {result.stderr[:300]}")
-
-            return result.returncode == 0
+                return False
 
         except Exception as e:
             logger.error(f"❌ Exception trimming {video_path}: {e}")
             return False
 
     def _concat_clips(self, clip_paths: List[str], output_path: str) -> bool:
-        """Concatenate video clips using FFmpeg concat demuxer (more reliable)"""
+        """
+        Concatenate video clips using FFmpeg concat demuxer.
+
+        IMPORTANT: All clips MUST have identical properties:
+        - Same resolution (720x1280 9:16)
+        - Same codec
+        - Same frame rate
+        - No audio (audio removed during trim)
+
+        This method uses concat demuxer which is fastest and most reliable
+        when all clips have identical encoding parameters.
+        """
         try:
-            if len(clip_paths) < 2:
-                logger.error("Need at least 2 clips")
+            if len(clip_paths) < 1:
+                logger.error("Need at least 1 clip")
                 return False
+
+            # Handle single clip case
+            if len(clip_paths) == 1:
+                logger.info(f"Only 1 clip, copying directly...")
+                import shutil
+                shutil.copy(clip_paths[0], output_path)
+                logger.info(f"✅ Single clip copied")
+                return True
 
             # Verify all input files exist
             for clip in clip_paths:
@@ -455,27 +498,26 @@ class VideoMixer:
             concat_file = os.path.join(os.path.dirname(output_path), "concat_list.txt")
             with open(concat_file, 'w') as f:
                 for clip_path in clip_paths:
-                    # Use absolute paths and escape single quotes
+                    # Use absolute paths for safety
                     abs_path = os.path.abspath(clip_path)
+                    # Escape single quotes in paths
+                    abs_path = abs_path.replace("'", "'\\''")
                     f.write(f"file '{abs_path}'\n")
 
-            logger.info(f"Created concat list: {concat_file}")
+            logger.info(f"📝 Created concat list with {len(clip_paths)} clips")
 
-            # Use concat demuxer (simpler and more reliable)
+            # Use concat demuxer with COPY codec (fastest, no re-encoding)
+            # Since all clips have identical properties, we can use -c copy
             cmd = [
                 "ffmpeg",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_file,
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "23",
-                "-pix_fmt", "yuv420p",
+                "-c", "copy",  # ⚡ FAST: No re-encoding since clips are identical
                 "-y", output_path
             ]
 
-            logger.info(f"Running FFmpeg concat (demuxer method)...")
-            logger.info(f"Command: {' '.join(cmd)}")
+            logger.info(f"🔗 Running FFmpeg concat (fast copy mode)...")
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -486,13 +528,40 @@ class VideoMixer:
                 pass
 
             if result.returncode == 0:
-                logger.info(f"✅ Successfully concatenated {len(clip_paths)} clips")
-                return True
+                # Verify output file exists and has size > 0
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                    logger.info(f"✅ Successfully concatenated {len(clip_paths)} clips ({file_size_mb:.2f} MB)")
+                    return True
+                else:
+                    logger.error(f"❌ Output file empty or doesn't exist")
+                    return False
             else:
                 logger.error(f"❌ FFmpeg concat failed with return code {result.returncode}")
-                logger.error(f"STDERR (full): {result.stderr}")
-                logger.error(f"STDOUT (full): {result.stdout}")
-                return False
+                logger.error(f"STDERR: {result.stderr[:500]}")
+
+                # Try fallback: Re-encode method (slower but more compatible)
+                logger.warning(f"⚠️  Trying fallback method with re-encoding...")
+                cmd_fallback = [
+                    "ffmpeg",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", concat_file,
+                    "-c:v", "libx264",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                    "-y", output_path
+                ]
+
+                result = subprocess.run(cmd_fallback, capture_output=True, text=True)
+
+                if result.returncode == 0 and os.path.exists(output_path):
+                    logger.info(f"✅ Fallback concatenation successful")
+                    return True
+                else:
+                    logger.error(f"❌ Fallback also failed: {result.stderr[:300]}")
+                    return False
 
         except Exception as e:
             logger.error(f"❌ Exception during concatenation: {e}")

@@ -343,30 +343,6 @@ class LocalMediaWorkflow:
             print()
 
             # ============================================================
-            # STEP 6.5: ADD OUTRO CARD (3 SECONDS)
-            # ============================================================
-            print("🎬 STEP 6.5: Adding outro card...")
-            print("-" * 60)
-
-            outro_text = decisions.get('outro_text', 'Follow for more!')
-            print(f"   Text: \"{outro_text}\"")
-            print(f"   Duration: 3 seconds")
-
-            try:
-                video_with_outro = video_mixer.add_outro_card(
-                    video_path=mixed_video_path,
-                    outro_text=outro_text,
-                    duration=3.0
-                )
-                print(f"   ✅ Outro card added!")
-                # Use video with outro for upload
-                mixed_video_path = video_with_outro
-            except Exception as e:
-                print(f"   ⚠️  Failed to add outro card: {e}")
-                print(f"   Continuing with video without outro...")
-            print()
-
-            # ============================================================
             # STEP 7: UPLOAD TO SUPABASE
             # ============================================================
             print("☁️  STEP 7: Uploading to Supabase...")
@@ -398,7 +374,7 @@ class LocalMediaWorkflow:
                     final_output_path = self.output_dir / final_filename
 
                     print(f"   Submitting video URL...")
-                    print("   Settings: Iman template, Magic Zooms, Magic B-rolls (60%)")
+                    print("   Settings: Iman template, Magic Zooms, NO B-rolls (using original videos)")
 
                     final_path = self.submagic.process_video(
                         video_url=supabase_url,
@@ -407,8 +383,8 @@ class LocalMediaWorkflow:
                         language=decisions['language'][:2].lower(),
                         template_name="Iman",
                         magic_zooms=True,
-                        magic_brolls=True,
-                        magic_brolls_percentage=60
+                        magic_brolls=False,  # ❌ DISABLED - Keep original videos
+                        magic_brolls_percentage=0  # No B-roll insertion
                     )
 
                     print(f"   ✅ Submagic processing complete!")
