@@ -220,9 +220,48 @@ class LocalMediaWorkflow:
                 audio_duration = self.TARGET_TOTAL_DURATION  # Fallback
             else:
                 tts_url = tts_data.get("audio_url")
-                audio_duration = tts_data.get("duration", self.TARGET_TOTAL_DURATION)
                 print(f"   ✅ Voice narration generated!")
-                print(f"   📏 Audio duration: {audio_duration:.1f} seconds")
+
+                # Download audio and measure ACTUAL duration using ffprobe
+                # (MiniMax API's duration_ms field is unreliable)
+                print(f"   📏 Measuring actual audio duration...")
+                try:
+                    import tempfile
+                    import subprocess
+                    import requests
+
+                    # Download audio file
+                    temp_audio = Path(tempfile.mkdtemp()) / "temp_audio.mp3"
+                    audio_response = requests.get(tts_url)
+                    audio_response.raise_for_status()
+                    with open(temp_audio, 'wb') as f:
+                        f.write(audio_response.content)
+
+                    # Get actual duration using ffprobe
+                    cmd = [
+                        "ffprobe", "-v", "error",
+                        "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        str(temp_audio)
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+
+                    if result.returncode == 0 and result.stdout.strip():
+                        audio_duration = float(result.stdout.strip())
+                        print(f"   ✅ Actual audio duration: {audio_duration:.1f}s (measured with ffprobe)")
+                    else:
+                        # Fallback to API duration
+                        audio_duration = tts_data.get("duration", self.TARGET_TOTAL_DURATION)
+                        print(f"   ⚠️  Could not measure duration, using API value: {audio_duration:.1f}s")
+
+                    # Cleanup temp file
+                    temp_audio.unlink(missing_ok=True)
+
+                except Exception as e:
+                    # Fallback to API duration if measurement fails
+                    audio_duration = tts_data.get("duration", self.TARGET_TOTAL_DURATION)
+                    print(f"   ⚠️  Duration measurement failed: {e}")
+                    print(f"   Using API reported duration: {audio_duration:.1f}s")
             print()
 
             # ============================================================

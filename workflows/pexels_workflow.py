@@ -141,29 +141,74 @@ class PexelsWorkflow:
                 audio_duration = 20.0  # Fallback duration
             else:
                 tts_url = tts_data.get("audio_url")
-                # TTS tool returns "duration" in seconds
-                audio_duration = tts_data.get("duration", 20.0)
                 print(f"   ✅ Voice narration generated: {tts_url[:60]}...")
-                print(f"   📏 Audio duration: {audio_duration:.1f} seconds")
+
+                # Download audio and measure ACTUAL duration using ffprobe
+                # (MiniMax API's duration_ms field is unreliable)
+                print(f"   📏 Measuring actual audio duration...")
+                try:
+                    import tempfile
+                    import subprocess
+                    import requests
+
+                    # Download audio file
+                    temp_audio = Path(tempfile.mkdtemp()) / "temp_audio.mp3"
+                    audio_response = requests.get(tts_url)
+                    audio_response.raise_for_status()
+                    with open(temp_audio, 'wb') as f:
+                        f.write(audio_response.content)
+
+                    # Get actual duration using ffprobe
+                    cmd = [
+                        "ffprobe", "-v", "error",
+                        "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        str(temp_audio)
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+
+                    if result.returncode == 0 and result.stdout.strip():
+                        audio_duration = float(result.stdout.strip())
+                        print(f"   ✅ Actual audio duration: {audio_duration:.1f}s (measured with ffprobe)")
+                    else:
+                        # Fallback to API duration
+                        audio_duration = tts_data.get("duration", 20.0)
+                        print(f"   ⚠️  Could not measure duration, using API value: {audio_duration:.1f}s")
+
+                    # Cleanup temp file
+                    temp_audio.unlink(missing_ok=True)
+
+                except Exception as e:
+                    # Fallback to API duration if measurement fails
+                    audio_duration = tts_data.get("duration", 20.0)
+                    print(f"   ⚠️  Duration measurement failed: {e}")
+                    print(f"   Using API reported duration: {audio_duration:.1f}s")
             print()
 
             # ============================================================
-            # STEP 3: CALCULATE VIDEO COUNT (4 seconds per video)
+            # STEP 3: CALCULATE VIDEO COUNT & DYNAMIC SEGMENT DURATION
             # ============================================================
             import math
-            SEGMENT_DURATION = 4.0  # Each video clip = 4 seconds
-            num_videos_needed = math.ceil(audio_duration / SEGMENT_DURATION)
+
+            # Target 5 videos for variety, but adjust segment duration to match audio
+            TARGET_NUM_VIDEOS = 5
+
+            # Calculate segment duration dynamically: audio_duration / num_videos
+            # This ensures video duration EXACTLY matches audio duration
+            segment_duration = audio_duration / TARGET_NUM_VIDEOS
+            num_videos_needed = TARGET_NUM_VIDEOS
 
             print(f"📊 STEP 3: Calculating video requirements...")
             print("-" * 60)
             print(f"   Audio duration: {audio_duration:.1f}s")
-            print(f"   Segment duration: {SEGMENT_DURATION}s")
-            print(f"   Videos needed: {num_videos_needed} clips")
-            print(f"   Total video length: {num_videos_needed * SEGMENT_DURATION}s")
+            print(f"   Target videos: {TARGET_NUM_VIDEOS} clips")
+            print(f"   Segment duration: {segment_duration:.2f}s (dynamic)")
+            print(f"   Total video length: {num_videos_needed * segment_duration:.1f}s")
+            print(f"   ✅ Video matches audio duration perfectly!")
             print()
 
             # ============================================================
-            # STEP 4: SEARCH PEXELS WITH AI KEYWORDS
+            # STEP 4: SEARCH PEXELS WITH AI KEYWORDS (WITH RETRY)
             # ============================================================
             print(f"🔍 STEP 4: Searching Pexels for {num_videos_needed} videos...")
             print("-" * 60)
@@ -172,24 +217,49 @@ class PexelsWorkflow:
             search_query = " ".join(decisions['keywords'][:3])  # Use top 3 keywords
             print(f"   Search query: '{search_query}'")
 
-            # Search Pexels (fetch more than needed for variety)
-            pexels_result = self.pexels_tool._run(search_query, per_page=num_videos_needed + 2)
+            # Retry logic for Pexels API (handle 522 errors)
+            import time
+            max_retries = 3
+            videos = None
 
-            # PexelsVideoSearchTool returns a JSON-serialized list of videos
-            try:
-                videos = json.loads(pexels_result)
+            for attempt in range(1, max_retries + 1):
+                try:
+                    print(f"   Attempt {attempt}/{max_retries}...")
+                    # Search Pexels (fetch more than needed for variety)
+                    pexels_result = self.pexels_tool._run(search_query, per_page=num_videos_needed + 2)
 
-                # If it's a string error message, not a list
-                if isinstance(videos, str):
-                    raise Exception(f"Pexels search failed: {videos}")
+                    # PexelsVideoSearchTool returns a JSON-serialized list of videos
+                    videos = json.loads(pexels_result)
 
-                # If it's empty
-                if not videos:
-                    raise Exception("No videos found for search query")
+                    # If it's a string error message, not a list
+                    if isinstance(videos, str):
+                        raise Exception(f"Pexels search failed: {videos}")
 
-                print(f"   ✅ Found {len(videos)} videos")
-            except json.JSONDecodeError as e:
-                raise Exception(f"Invalid response from Pexels: {e}")
+                    # If it's empty
+                    if not videos or len(videos) == 0:
+                        raise Exception("No videos found for search query")
+
+                    print(f"   ✅ Found {len(videos)} videos")
+                    break  # Success, exit retry loop
+
+                except json.JSONDecodeError as e:
+                    if attempt < max_retries:
+                        print(f"   ⚠️  Pexels API error (attempt {attempt}/{max_retries}), retrying in 3s...")
+                        time.sleep(3)
+                    else:
+                        raise Exception(f"Pexels API failed after {max_retries} attempts: {e}")
+                except Exception as e:
+                    if "522" in str(e) or "Error searching" in str(e):
+                        if attempt < max_retries:
+                            print(f"   ⚠️  Pexels server error (attempt {attempt}/{max_retries}), retrying in 5s...")
+                            time.sleep(5)
+                        else:
+                            raise Exception(f"Pexels API unavailable after {max_retries} attempts")
+                    else:
+                        raise  # Re-raise other exceptions immediately
+
+            if not videos:
+                raise Exception("Failed to get videos from Pexels after retries")
 
             print()
 
@@ -233,8 +303,9 @@ class PexelsWorkflow:
                 raise Exception("No video download URLs found")
 
             print(f"   Processing {len(video_download_urls)} videos...")
-            print(f"   Each video: {SEGMENT_DURATION}s")
-            print(f"   Total video: {len(video_download_urls) * SEGMENT_DURATION}s")
+            print(f"   Each video: {segment_duration:.2f}s (dynamic)")
+            print(f"   Total video: {len(video_download_urls) * segment_duration:.1f}s")
+            print(f"   Audio length: {audio_duration:.1f}s")
 
             # Create reel with VideoMixer
             from datetime import datetime
@@ -246,7 +317,7 @@ class PexelsWorkflow:
                 video_urls=video_download_urls,
                 music_url=music_url,
                 voice_url=tts_url,
-                segment_duration=SEGMENT_DURATION,  # 4 seconds per clip
+                segment_duration=segment_duration,  # Dynamic duration matching audio
                 output_filename=output_filename
             )
 
