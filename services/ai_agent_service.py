@@ -157,11 +157,18 @@ Return ONLY valid JSON with these exact fields:
   "duration": "short/medium/long (short=5-15s, medium=15-30s, long=30+s)",
   "music_style": "Select ONE from: [Upbeat & Energetic, Calm & Peaceful, Cinematic & Epic, Corporate & Professional, Hip-Hop & Urban, Pop & Catchy]",
   "voice_style": "Select ONE from: [Professional Narrator, Friendly & Casual, Energetic & Excited, Calm & Soothing, Authoritative]",
-  "narration": "Generate compelling 20-25 second TTS script (MUST be 75-95 words) in {language}",
+  "narration": "Generate compelling 20-25 second TTS script in {language}. MUST be 65-80 words. Make it engaging and complete.",
   "voice_id": "Select EXACTLY ONE from: [Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy] - DO NOT create new names",
   "emotion": "Select ONE from: [happy, sad, angry, fearful, surprised, disgusted, neutral]",
-  "language": "{language}"
+  "language": "{language}",
+  "outro_text": "Generate a 4-5 word catchy outro/call-to-action text (e.g., 'Follow for more!', 'Visit us today!', 'Subscribe now!')"
 }}
+
+CRITICAL RULES - SCRIPT LENGTH:
+- Target: 65-80 words for 20-25 second audio
+- Minimum: 65 words (ensure full content)
+- Maximum: 80 words (prevent truncation)
+- Quality and completeness - make it engaging
 
 CRITICAL RULES - VOICE ID:
 - ONLY use these EXACT voice_id values: Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy
@@ -178,17 +185,17 @@ VOICE ID SUGGESTIONS:
 
 OTHER RULES:
 - Narration must be in {language}
-- Narration MUST be 75-95 words (approximately 20-25 seconds when spoken)
-- DO NOT write short scripts - aim for full 20-25 seconds of content
+- Narration MUST be 65-80 words (approximately 20-25 seconds when spoken)
+- Do NOT go below 65 words or above 80 words
 - Match emotion and voice to the video mood
 - Keywords should be Pexels-friendly search terms
 - Return ONLY the JSON object, no additional text
 
-IMPORTANT - SCRIPT LENGTH:
-- Minimum: 75 words
-- Target: 85 words
-- Maximum: 95 words
-- This ensures 20-25 seconds of audio"""
+IMPORTANT - SCRIPT LENGTH (CRITICAL):
+- Minimum: 65 words (enforce strictly)
+- Target: 70-75 words (ideal)
+- Maximum: 80 words (strict limit)
+- This ensures 20-25 seconds of engaging audio content"""
 
         user_prompt = f"""Video Idea: "{refined_idea}"
 
@@ -219,7 +226,7 @@ Analyze this and generate the decision JSON."""
 
             # Validate required fields
             required_fields = ["category", "keywords", "duration", "music_style",
-                             "voice_style", "narration", "voice_id", "emotion", "language"]
+                             "voice_style", "narration", "voice_id", "emotion", "language", "outro_text"]
 
             for field in required_fields:
                 if field not in decisions:
@@ -235,6 +242,7 @@ Analyze this and generate the decision JSON."""
             print(f"   🎭 Emotion: {decisions['emotion']}")
             print(f"   🌍 Language: {decisions['language']}")
             print(f"   📝 Narration: {decisions['narration'][:80]}...")
+            print(f"   🎬 Outro: \"{decisions['outro_text']}\"")
 
             return decisions
 

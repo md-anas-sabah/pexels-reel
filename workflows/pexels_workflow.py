@@ -190,21 +190,30 @@ class PexelsWorkflow:
             # ============================================================
             import math
 
-            # Target 5 videos for variety, but adjust segment duration to match audio
-            TARGET_NUM_VIDEOS = 5
+            # Target 6 videos for variety
+            TARGET_NUM_VIDEOS = 6
 
-            # Calculate segment duration dynamically: audio_duration / num_videos
-            # This ensures video duration EXACTLY matches audio duration
-            segment_duration = audio_duration / TARGET_NUM_VIDEOS
+            # IMPORTANT: Submagic ALWAYS trims ~3s from end
+            # So we need to generate video = audio + 3s buffer
+            SUBMAGIC_TRIM_BUFFER = 3.0  # Submagic cuts last 3 seconds
+
+            target_video_duration = audio_duration + SUBMAGIC_TRIM_BUFFER
+
+            # Calculate segment duration: (audio + buffer) / num_videos
+            segment_duration = target_video_duration / TARGET_NUM_VIDEOS
             num_videos_needed = TARGET_NUM_VIDEOS
+
+            total_video_duration = num_videos_needed * segment_duration
 
             print(f"📊 STEP 3: Calculating video requirements...")
             print("-" * 60)
             print(f"   Audio duration: {audio_duration:.1f}s")
-            print(f"   Target videos: {TARGET_NUM_VIDEOS} clips")
-            print(f"   Segment duration: {segment_duration:.2f}s (dynamic)")
-            print(f"   Total video length: {num_videos_needed * segment_duration:.1f}s")
-            print(f"   ✅ Video matches audio duration perfectly!")
+            print(f"   Submagic trim buffer: +{SUBMAGIC_TRIM_BUFFER:.1f}s")
+            print(f"   Target video duration: {target_video_duration:.1f}s")
+            print(f"   Videos needed: {TARGET_NUM_VIDEOS} clips")
+            print(f"   Segment duration: {segment_duration:.2f}s per clip")
+            print(f"   Total video length: {total_video_duration:.1f}s")
+            print(f"   After Submagic trim: ~{audio_duration:.1f}s (matches audio)")
             print()
 
             # ============================================================
@@ -327,6 +336,15 @@ class PexelsWorkflow:
             print()
 
             # ============================================================
+            # STEP 6.5: SKIP OUTRO CARD (Using 6 clips instead for full coverage)
+            # ============================================================
+            print("🎬 STEP 6.5: Outro card disabled")
+            print("-" * 60)
+            print(f"   Using 6 video clips for complete audio coverage")
+            print(f"   Video duration: {audio_duration:.1f}s (matches audio)")
+            print()
+
+            # ============================================================
             # STEP 7: UPLOAD TO SUPABASE
             # ============================================================
             print("☁️  STEP 7: Uploading to Supabase...")
@@ -345,8 +363,20 @@ class PexelsWorkflow:
             # ============================================================
             # STEP 8: SUBMIT TO SUBMAGIC (SUBTITLES + EFFECTS)
             # ============================================================
-            print("✨ STEP 8: Submitting to Submagic...")
+            print("✨ STEP 8: Submitting to Submagic for subtitles...")
             print("-" * 60)
+
+            # Get video duration before Submagic
+            try:
+                probe_result = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", str(mixed_video_path)],
+                    capture_output=True, text=True
+                )
+                pre_submagic_duration = float(probe_result.stdout.strip()) if probe_result.returncode == 0 else 0
+                print(f"   Video before Submagic: {pre_submagic_duration:.1f}s")
+            except:
+                pre_submagic_duration = 0
 
             final_video_url = None
             final_output_path = None
@@ -361,7 +391,7 @@ class PexelsWorkflow:
                     final_output_path = self.output_dir / final_filename
 
                     print(f"   Submitting video URL: {supabase_url[:60]}...")
-                    print("   Settings: Iman template, Magic Zooms, Magic B-rolls (60%)")
+                    print("   Settings: Devin template, NO Zooms, Magic B-rolls (60%)")
 
                     # Complete end-to-end Submagic workflow
                     final_path = self.submagic.process_video(
@@ -369,8 +399,8 @@ class PexelsWorkflow:
                         output_path=str(final_output_path),
                         title="AI Generated Reel",
                         language=decisions['language'][:2].lower(),  # "en", "hi", "ar"
-                        template_name="Iman",
-                        magic_zooms=True,
+                        template_name="Devin",
+                        magic_zooms=False,  # Disabled for faster processing
                         magic_brolls=True,
                         magic_brolls_percentage=60
                     )
@@ -381,6 +411,24 @@ class PexelsWorkflow:
                     # Update path reference
                     final_output_path = Path(final_path)
                     final_video_url = "processed"  # Mark as successful
+
+                    # Verify final video duration after Submagic
+                    try:
+                        probe_result = subprocess.run(
+                            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "default=noprint_wrappers=1:nokey=1", str(final_output_path)],
+                            capture_output=True, text=True
+                        )
+                        post_submagic_duration = float(probe_result.stdout.strip()) if probe_result.returncode == 0 else 0
+                        print(f"   📏 Final video after Submagic: {post_submagic_duration:.1f}s")
+                        if pre_submagic_duration > 0:
+                            duration_diff = post_submagic_duration - pre_submagic_duration
+                            if abs(duration_diff) > 0.5:
+                                print(f"   ⚠️  Duration changed by {duration_diff:+.1f}s (Submagic trimmed/extended)")
+                            else:
+                                print(f"   ✅ Duration preserved (difference: {duration_diff:+.1f}s)")
+                    except Exception as e:
+                        print(f"   ⚠️  Could not verify final duration: {e}")
 
                 except Exception as e:
                     print(f"   ⚠️  Submagic processing failed: {e}")

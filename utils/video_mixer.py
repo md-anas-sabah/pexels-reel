@@ -167,15 +167,34 @@ class VideoMixer:
 
         # Audio mixing filter
         if len(temp_audio_paths) == 2:
-            # Both voice and music
+            # Both voice and music - match VIDEO duration
             logger.info("🎵 Mixing voice + music (music at 15% volume)")
+
+            # Get video duration first
+            import subprocess
+            probe_cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path
+            ]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            video_duration = float(probe_result.stdout.strip()) if probe_result.returncode == 0 else 30
+
+            logger.info(f"   Video duration: {video_duration:.1f}s")
+            logger.info(f"   Audio will be trimmed/extended to match video")
+
             cmd.extend([
                 "-filter_complex",
-                "[2:a]volume=0.15[music_low];[1:a][music_low]amix=inputs=2:duration=first:dropout_transition=2",
-                "-c:v", "copy",  # Copy video without re-encoding
+                f"[1:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[voice_trim];"
+                f"[2:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS,volume=0.15[music_trim];"
+                f"[voice_trim][music_trim]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                "-map", "0:v",
+                "-map", "[aout]",
+                "-c:v", "copy",
                 "-c:a", "aac",
                 "-b:a", "192k",
-                "-shortest",
+                "-t", str(video_duration),  # Limit to video duration
                 "-y", str(output_path)
             ])
         elif temp_audio_paths[0][0] == "voice":
@@ -185,7 +204,7 @@ class VideoMixer:
                 "-c:v", "copy",
                 "-c:a", "aac",
                 "-b:a", "192k",
-                "-shortest",
+                # Removed -shortest to use full video duration
                 "-y", str(output_path)
             ])
         else:
@@ -198,7 +217,7 @@ class VideoMixer:
                 "-c:v", "copy",
                 "-c:a", "aac",
                 "-b:a", "192k",
-                "-shortest",
+                # Removed -shortest to use full video duration
                 "-y", str(output_path)
             ])
 
@@ -275,6 +294,85 @@ class VideoMixer:
         finally:
             # Cleanup temp files
             self.cleanup()
+
+    def add_outro_card(
+        self,
+        video_path: str,
+        outro_text: str,
+        duration: float = 3.0
+    ) -> str:
+        """
+        Add a 3-second outro card at the end of video with text overlay
+        Audio continues during outro (fades out or continues)
+
+        Args:
+            video_path: Path to input video
+            outro_text: Text to display (4-5 words recommended)
+            duration: Duration of outro card in seconds (default: 3.0)
+
+        Returns:
+            Path to video with outro card
+        """
+        try:
+            logger.info(f"📝 Adding outro card: '{outro_text}' ({duration}s)")
+
+            output_path = self.temp_dir / "video_with_outro.mp4"
+
+            # Escape text properly for FFmpeg drawtext filter
+            # Replace single quotes with escaped version
+            escaped_text = outro_text.replace("'", r"'\\\''")
+
+            # Simpler approach: Use Python string without shell interpretation
+            filter_str = (
+                f"[1:v]drawtext="
+                f"text='{escaped_text}':"
+                f"fontsize=60:"
+                f"fontcolor=white:"
+                f"x=(w-text_w)/2:"
+                f"y=(h-text_h)/2:"
+                f"box=1:"
+                f"boxcolor=black@0.6:"
+                f"boxborderw=15[outro_card];"
+                f"[0:v][outro_card]concat=n=2:v=1:a=0[outv];"
+                f"[0:a][2:a]concat=n=2:v=0:a=1[outa]"
+            )
+
+            # Strategy:
+            # 1. Create black outro card with text (3s)
+            # 2. Concatenate main video + outro card
+            # 3. Extend audio with silence for outro duration
+            cmd = [
+                "ffmpeg",
+                "-i", video_path,
+                "-f", "lavfi",
+                "-i", f"color=c=black:s=720x1280:d={duration}",
+                "-f", "lavfi",
+                "-i", f"anullsrc=r=44100:cl=stereo:d={duration}",  # Silent audio for outro
+                "-filter_complex", filter_str,
+                "-map", "[outv]",
+                "-map", "[outa]",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-y", str(output_path)
+            ]
+
+            logger.info(f"Running FFmpeg to add outro card...")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                logger.info(f"✅ Outro card added: {output_path}")
+                return str(output_path)
+            else:
+                logger.error(f"❌ FFmpeg failed: {result.stderr[:500]}")
+                logger.error(f"Command: {' '.join(cmd)}")
+                raise Exception(f"Failed to add outro card: {result.stderr[:300]}")
+
+        except Exception as e:
+            logger.error(f"❌ Exception adding outro: {e}")
+            raise
 
     def cleanup(self):
         """Remove temporary files"""

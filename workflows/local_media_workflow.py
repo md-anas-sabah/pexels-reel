@@ -343,6 +343,30 @@ class LocalMediaWorkflow:
             print()
 
             # ============================================================
+            # STEP 6.5: ADD OUTRO CARD (3 SECONDS)
+            # ============================================================
+            print("🎬 STEP 6.5: Adding outro card...")
+            print("-" * 60)
+
+            outro_text = decisions.get('outro_text', 'Follow for more!')
+            print(f"   Text: \"{outro_text}\"")
+            print(f"   Duration: 3 seconds")
+
+            try:
+                video_with_outro = video_mixer.add_outro_card(
+                    video_path=mixed_video_path,
+                    outro_text=outro_text,
+                    duration=3.0
+                )
+                print(f"   ✅ Outro card added!")
+                # Use video with outro for upload
+                mixed_video_path = video_with_outro
+            except Exception as e:
+                print(f"   ⚠️  Failed to add outro card: {e}")
+                print(f"   Continuing with video without outro...")
+            print()
+
+            # ============================================================
             # STEP 7: UPLOAD TO SUPABASE
             # ============================================================
             print("☁️  STEP 7: Uploading to Supabase...")
