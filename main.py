@@ -439,6 +439,17 @@ def run_local_media_workflow(user_idea: str):
         print(f"❌ Invalid directory path: {directory}")
         return
 
+    # Ask for logo
+    print("\n🖼️  LOGO OVERLAY (Optional)")
+    print("-" * 40)
+    logo_path = input("📂 Enter logo path (PNG recommended, press Enter to skip): ").strip()
+
+    if logo_path and not os.path.isfile(logo_path):
+        print(f"⚠️  Logo file not found: {logo_path}")
+        logo_path = None
+    elif logo_path:
+        print(f"✅ Logo will be added to bottom-right corner")
+
     # Count video files
     from config import Config
     video_count = len([f for f in os.listdir(directory)
@@ -479,7 +490,8 @@ def run_local_media_workflow(user_idea: str):
         workflow = LocalMediaWorkflow()
         result = workflow.execute(
             user_idea=user_idea,
-            video_directory=directory
+            video_directory=directory,
+            logo_path=logo_path if logo_path else None
         )
 
         if result["success"]:
@@ -514,6 +526,18 @@ def run_pexels_workflow(user_idea: str):
     print(f"💡 Your idea: '{user_idea}'")
     print()
 
+    # Ask for logo
+    print("🖼️  LOGO OVERLAY (Optional)")
+    print("-" * 40)
+    logo_path = input("📂 Enter logo path (PNG recommended, press Enter to skip): ").strip()
+
+    if logo_path and not os.path.isfile(logo_path):
+        print(f"⚠️  Logo file not found: {logo_path}")
+        logo_path = None
+    elif logo_path:
+        print(f"✅ Logo will be added to bottom-right corner")
+    print()
+
     print("⚡ AI will automatically:")
     print("   ✓ Analyze your idea and extract keywords")
     print("   ✓ Choose video category and search terms")
@@ -522,6 +546,8 @@ def run_pexels_workflow(user_idea: str):
     print("   ✓ Generate 20-second narration script")
     print("   ✓ Detect language (Hindi/English)")
     print("   ✓ Create professional reel with subtitles")
+    if logo_path:
+        print("   ✓ Add logo overlay to bottom-right corner")
     print()
 
     confirm = input("🚀 Start AI video generation? (Y/n): ").strip().lower()
@@ -534,7 +560,10 @@ def run_pexels_workflow(user_idea: str):
         from workflows.pexels_workflow import PexelsWorkflow
 
         workflow = PexelsWorkflow()
-        result = workflow.execute(user_idea)
+        result = workflow.execute(
+            user_idea=user_idea,
+            logo_path=logo_path if logo_path else None
+        )
 
         if result["success"]:
             print(f"\n✅ Workflow completed successfully!")

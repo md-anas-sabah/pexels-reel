@@ -295,6 +295,79 @@ class VideoMixer:
             # Cleanup temp files
             self.cleanup()
 
+    def add_logo_overlay(
+        self,
+        video_path: str,
+        logo_path: str,
+        logo_width: int = None,
+        position_x: int = None,
+        position_y: int = None
+    ) -> str:
+        """
+        Add logo overlay to video (bottom-right corner by default)
+
+        Args:
+            video_path: Path to input video
+            logo_path: Path to logo image (PNG with transparency recommended)
+            logo_width: Width of logo in pixels (default: 80 from config)
+            position_x: X position in pixels from right edge (default: 15 from config)
+            position_y: Y position in pixels from bottom (default: 25 from config)
+
+        Returns:
+            Path to video with logo overlay
+        """
+        try:
+            # Use config defaults if not specified
+            if logo_width is None:
+                logo_width = Config.LOGO_WIDTH
+            if position_x is None:
+                position_x = Config.LOGO_POSITION_X
+            if position_y is None:
+                position_y = Config.LOGO_POSITION_Y
+
+            logger.info(f"🖼️  Adding logo overlay: {Path(logo_path).name}")
+            logger.info(f"   Width: {logo_width}px, Position: {position_x}px from right, {position_y}px from bottom")
+
+            output_path = self.temp_dir / "video_with_logo.mp4"
+
+            # Calculate position for bottom-right corner
+            # FFmpeg overlay: x=W-w-padding (W=video width, w=logo width)
+            # y=H-h-padding (H=video height, h=logo height)
+            # We scale logo to width, height will be calculated maintaining aspect ratio
+
+            # Build overlay filter
+            # Scale logo to desired width, position at bottom-right
+            overlay_filter = (
+                f"[1:v]scale={logo_width}:-1[logo];"  # Scale logo, maintain aspect ratio
+                f"[0:v][logo]overlay=x=W-w-{position_x}:y=H-h-{position_y}"  # Bottom-right corner
+            )
+
+            cmd = [
+                "ffmpeg",
+                "-i", video_path,
+                "-i", logo_path,
+                "-filter_complex", overlay_filter,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-c:a", "copy",  # Copy audio without re-encoding
+                "-y", str(output_path)
+            ]
+
+            logger.info("Running FFmpeg to add logo overlay...")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                logger.info(f"✅ Logo overlay added: {output_path}")
+                return str(output_path)
+            else:
+                logger.error(f"❌ FFmpeg failed: {result.stderr[:500]}")
+                raise Exception(f"Failed to add logo overlay: {result.stderr[:300]}")
+
+        except Exception as e:
+            logger.error(f"❌ Exception adding logo: {e}")
+            raise
+
     def add_outro_card(
         self,
         video_path: str,

@@ -69,13 +69,14 @@ class PexelsWorkflow:
         self.output_dir = Path(Config.OUTPUT_DIR)
         self.output_dir.mkdir(exist_ok=True)
 
-    def execute(self, user_idea: str, output_filename: str = None) -> dict:
+    def execute(self, user_idea: str, output_filename: str = None, logo_path: str = None) -> dict:
         """
         Execute the complete AI-driven Pexels workflow
 
         Args:
             user_idea: User's video idea (e.g., "calming morning coffee video")
             output_filename: Optional custom output filename
+            logo_path: Optional path to logo image for overlay (bottom-right corner)
 
         Returns:
             dict: {
@@ -336,9 +337,43 @@ class PexelsWorkflow:
             print()
 
             # ============================================================
-            # STEP 6.5: SKIP OUTRO CARD (Using 6 clips instead for full coverage)
+            # STEP 6.5: ADD LOGO OVERLAY (if provided)
             # ============================================================
-            print("🎬 STEP 6.5: Outro card disabled")
+            if logo_path:
+                print("🖼️  STEP 6.5: Adding logo overlay...")
+                print("-" * 60)
+
+                if not Path(logo_path).exists():
+                    print(f"   ⚠️  Logo file not found: {logo_path}")
+                    print("   Skipping logo overlay...")
+                else:
+                    try:
+                        # Add logo overlay to mixed video
+                        video_with_logo = self.video_mixer.add_logo_overlay(
+                            video_path=mixed_video_path,
+                            logo_path=logo_path
+                        )
+
+                        # Update mixed_video_path to use video with logo
+                        mixed_video_path = video_with_logo
+
+                        print(f"   ✅ Logo overlay added successfully!")
+                        logo_file_size_mb = Path(mixed_video_path).stat().st_size / (1024 * 1024)
+                        print(f"   📦 Size: {logo_file_size_mb:.2f} MB")
+                    except Exception as e:
+                        print(f"   ⚠️  Logo overlay failed: {e}")
+                        print("   Continuing with video without logo...")
+                print()
+            else:
+                print("🖼️  STEP 6.5: Logo overlay skipped (no logo provided)")
+                print("-" * 60)
+                print("   To add a logo, provide logo_path parameter")
+                print()
+
+            # ============================================================
+            # STEP 6.6: SKIP OUTRO CARD (Using 6 clips instead for full coverage)
+            # ============================================================
+            print("🎬 STEP 6.6: Outro card disabled")
             print("-" * 60)
             print(f"   Using 6 video clips for complete audio coverage")
             print(f"   Video duration: {audio_duration:.1f}s (matches audio)")

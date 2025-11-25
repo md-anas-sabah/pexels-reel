@@ -41,6 +41,11 @@ class AIAgentService:
 Your job is to take a user's rough video idea and refine it into a clear, detailed creative brief
 that captures the essence, mood, visual style, and narrative flow.
 
+CRITICAL: If the user writes in Hinglish (Hindi-English mixed), PRESERVE their exact words and spellings.
+- Do NOT auto-correct Hinglish words (e.g., keep "wiwaha" as "wiwaha", NOT "woke" or "wedding")
+- Do NOT translate Hinglish to pure English or pure Hindi
+- RESPECT their language choice and word spellings exactly as written
+
 Enhance the idea by:
 - Identifying the core emotion/mood
 - Suggesting visual elements and scenes
@@ -97,13 +102,25 @@ Focus on visual storytelling, mood, and engagement."""
         """
         Detect language of the input text
 
+        Detects Hinglish (mixed Hindi-English) and preserves it
+
         Args:
             text: User's input text
 
         Returns:
-            Language code: "English", "Hindi", "Arabic", "Urdu"
+            Language code: "English", "Hindi", "Arabic", "Urdu", or "Hinglish"
         """
         try:
+            # Check if text contains both English and Hindi/Devanagari characters
+            has_english = any(ord(char) < 128 and char.isalpha() for char in text)
+            has_hindi = any('\u0900' <= char <= '\u097F' for char in text)
+
+            # If both present, it's Hinglish
+            if has_english and has_hindi:
+                print(f"   🌐 Detected: Hinglish (mixed Hindi-English)")
+                return 'Hinglish'
+
+            # Otherwise use langdetect
             detected = detect(text)
 
             language_map = {
@@ -113,7 +130,19 @@ Focus on visual storytelling, mood, and engagement."""
                 'ur': 'Urdu'
             }
 
-            return language_map.get(detected, 'English')
+            detected_lang = language_map.get(detected, 'English')
+
+            # If detected as English but contains transliterated Hindi words
+            # (common Hinglish pattern), mark as Hinglish
+            if detected_lang == 'English':
+                hinglish_indicators = ['ki', 'ka', 'ke', 'hai', 'ho', 'ko', 'se', 'me', 'pe',
+                                      'wala', 'wali', 'karo', 'karna', 'aur', 'ya', 'par']
+                words = text.lower().split()
+                if any(indicator in words for indicator in hinglish_indicators):
+                    print(f"   🌐 Detected: Hinglish (transliterated Hindi-English)")
+                    return 'Hinglish'
+
+            return detected_lang
 
         except Exception as e:
             print(f"⚠️  Language detection failed: {e}, defaulting to English")
@@ -150,6 +179,15 @@ Focus on visual storytelling, mood, and engagement."""
         # Stage 2: GPT-3.5 makes structured decisions
         system_prompt = f"""You are a professional video production AI assistant. Analyze the video idea and make optimal decisions for creating an engaging social media reel.
 
+CRITICAL - HINGLISH SUPPORT:
+- If the user writes in Hinglish (Hindi-English mixed), the narration script MUST preserve their exact words and spellings
+- Do NOT auto-correct Hinglish words (e.g., "wiwaha" stays "wiwaha", NOT "woke", "vivah", or "wedding")
+- Do NOT translate Hinglish to pure English or pure Hindi
+- Keep the same language style and vocabulary the user used in their original idea
+- Example: If user says "shaadi ki video", narration should use "shaadi" not "wedding" or "विवाह"
+- Example: If user says "morning coffee routine", narration can use English freely
+- Example: If user mixes both like "subah ka coffee routine", keep mixing both languages naturally
+
 Return ONLY valid JSON with these exact fields:
 {{
   "category": "Select ONE from: [Nature & Lifestyle, Urban & City Life, People & Activities, Abstract & Creative, Seasonal & Weather]",
@@ -157,7 +195,7 @@ Return ONLY valid JSON with these exact fields:
   "duration": "short/medium/long (short=5-15s, medium=15-30s, long=30+s)",
   "music_style": "Select ONE from: [Upbeat & Energetic, Calm & Peaceful, Cinematic & Epic, Corporate & Professional, Hip-Hop & Urban, Pop & Catchy]",
   "voice_style": "Select ONE from: [Professional Narrator, Friendly & Casual, Energetic & Excited, Calm & Soothing, Authoritative]",
-  "narration": "Generate compelling 20-25 second TTS script in {language}. MUST be 65-80 words. Make it engaging and complete.",
+  "narration": "Generate compelling 20-25 second TTS script in {language}. MUST be 65-80 words. CRITICAL: If user wrote in Hinglish, use the EXACT same words/spellings from their idea in the script (preserve Hinglish exactly as written). Make it engaging and complete.",
   "voice_id": "Select EXACTLY ONE from: [Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy] - DO NOT create new names",
   "emotion": "Select ONE from: [happy, sad, angry, fearful, surprised, disgusted, neutral]",
   "language": "{language}",
@@ -185,6 +223,7 @@ VOICE ID SUGGESTIONS:
 
 OTHER RULES:
 - Narration must be in {language}
+- HINGLISH PRESERVATION: If the original user idea contains Hinglish words (e.g., "wiwaha", "shaadi", "subah"), the narration MUST use those EXACT same spellings. Do NOT auto-correct or translate them.
 - Narration MUST be 65-80 words (approximately 20-25 seconds when spoken)
 - Do NOT go below 65 words or above 80 words
 - Match emotion and voice to the video mood
@@ -197,7 +236,10 @@ IMPORTANT - SCRIPT LENGTH (CRITICAL):
 - Maximum: 80 words (strict limit)
 - This ensures 20-25 seconds of engaging audio content"""
 
-        user_prompt = f"""Video Idea: "{refined_idea}"
+        user_prompt = f"""Original User Input: "{user_idea}"
+Refined Creative Brief: "{refined_idea}"
+
+IMPORTANT: When generating the narration script, preserve any Hinglish words from the ORIGINAL USER INPUT exactly as the user spelled them. Do not auto-correct or translate these words.
 
 Analyze this and generate the decision JSON."""
 

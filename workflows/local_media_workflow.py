@@ -129,7 +129,7 @@ class LocalMediaWorkflow:
 
         return duration
 
-    def execute(self, user_idea: str, video_directory: str, output_filename: str = None) -> dict:
+    def execute(self, user_idea: str, video_directory: str, output_filename: str = None, logo_path: str = None) -> dict:
         """
         Execute the complete Local Media workflow
 
@@ -137,6 +137,7 @@ class LocalMediaWorkflow:
             user_idea: User's video idea for AI to generate audio
             video_directory: Path to directory containing local videos
             output_filename: Optional custom output filename
+            logo_path: Optional path to logo image for overlay (bottom-right corner)
 
         Returns:
             dict: {
@@ -341,6 +342,40 @@ class LocalMediaWorkflow:
             file_size_mb = Path(mixed_video_path).stat().st_size / (1024 * 1024)
             print(f"   📦 Size: {file_size_mb:.2f} MB")
             print()
+
+            # ============================================================
+            # STEP 6.5: ADD LOGO OVERLAY (if provided)
+            # ============================================================
+            if logo_path:
+                print("🖼️  STEP 6.5: Adding logo overlay...")
+                print("-" * 60)
+
+                if not Path(logo_path).exists():
+                    print(f"   ⚠️  Logo file not found: {logo_path}")
+                    print("   Skipping logo overlay...")
+                else:
+                    try:
+                        # Add logo overlay to mixed video
+                        video_with_logo = video_mixer.add_logo_overlay(
+                            video_path=mixed_video_path,
+                            logo_path=logo_path
+                        )
+
+                        # Update mixed_video_path to use video with logo
+                        mixed_video_path = video_with_logo
+
+                        print(f"   ✅ Logo overlay added successfully!")
+                        logo_file_size_mb = Path(mixed_video_path).stat().st_size / (1024 * 1024)
+                        print(f"   📦 Size: {logo_file_size_mb:.2f} MB")
+                    except Exception as e:
+                        print(f"   ⚠️  Logo overlay failed: {e}")
+                        print("   Continuing with video without logo...")
+                print()
+            else:
+                print("🖼️  STEP 6.5: Logo overlay skipped (no logo provided)")
+                print("-" * 60)
+                print("   To add a logo, provide logo_path parameter")
+                print()
 
             # ============================================================
             # STEP 7: UPLOAD TO SUPABASE

@@ -80,7 +80,7 @@ class Config:
     EMOTIONS = ["happy", "sad", "angry", "fearful", "surprised", "disgusted", "neutral"]
 
     # Supported Languages
-    LANGUAGES = ["English", "Hindi", "Arabic", "Urdu"]
+    LANGUAGES = ["English", "Hindi", "Arabic", "Urdu", "Hinglish"]
 
     # Music Styles
     MUSIC_STYLES = [
@@ -161,10 +161,10 @@ class Config:
     MIN_CLIPS = 2
     MAX_CLIPS = 15
 
-    # Logo overlay settings
+    # Logo overlay settings (bottom-right corner)
     LOGO_WIDTH = 80  # pixels
     LOGO_POSITION_X = 15  # pixels from right edge
-    LOGO_POSITION_Y = 25  # pixels from top
+    LOGO_POSITION_Y = 25  # pixels from bottom edge
 
     # ==================== CREWAAI SETTINGS ====================
 
