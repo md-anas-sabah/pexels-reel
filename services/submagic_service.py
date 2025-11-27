@@ -92,8 +92,9 @@ class SubmagicService:
             "templateName": template_name,
             "magicZooms": magic_zooms,
             "magicBrolls": magic_brolls,
-            "magicBrollsPercentage": magic_brolls_percentage,
-            "position": position  # Subtitle vertical position (70 = bottom with safe zone)
+            "magicBrollsPercentage": magic_brolls_percentage
+            # Note: "position" field is NOT supported by Submagic API
+            # Subtitle positioning is controlled by templateName (e.g., "Alex", "Hormozi 2")
         }
 
         # Add webhook URL if provided

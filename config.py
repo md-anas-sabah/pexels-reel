@@ -44,7 +44,7 @@ class Config:
     # ==================== HEYGEN AVATARS ====================
 
     HEYGEN_AVATARS = [
-        {"id": "Scarlett_standing_hall_front", "name": "Boy (Casual Young Male)", "gender": "male"},
+        {"id": "Daisy-inTshirt-20220819", "name": "Boy (Casual Young Male)", "gender": "male"},
         {"id": "Nadim_public_5", "name": "Girl (Young Female)", "gender": "female"},
         {"id": "Seema_Nurse_Side_2_public", "name": "Man (Professional Male)", "gender": "male"},
         {"id": "Sabine_standing_office_front", "name": "Woman (Sabine - Office Professional)", "gender": "female"},

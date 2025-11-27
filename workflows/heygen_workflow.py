@@ -280,7 +280,7 @@ class HeyGenWorkflow:
             # Step 6: Submit to Submagic for B-rolls + subtitles + effects
             print(f"\n✨ Submitting to Submagic for Magic B-rolls and subtitles...")
             print(f"   Video URL: {heygen_supabase_url[:60]}...")
-            print("   Settings: Alex template, NO Zooms, Magic B-rolls (50%), Position: 70 (bottom)")
+            print("   Settings: Karl template, NO Zooms, Magic B-rolls (20%)")
 
             try:
                 # Submagic will add B-rolls automatically using Magic B-rolls feature
@@ -289,11 +289,11 @@ class HeyGenWorkflow:
                     output_path=str(output_path),
                     title="AI Generated Avatar Reel",
                     language="en",  # Default to English, can be made dynamic
-                    template_name="Alex",  # Alex template - different subtitle positioning
+                    template_name="Karl",  # HARDCODED: Karl template (DO NOT CHANGE)
                     magic_zooms=False,  # No zooms
                     magic_brolls=True,  # Magic B-rolls from Submagic's library
-                    magic_brolls_percentage=20,  # 30% B-roll coverage
-                    position=70  # Bottom positioning (70% from top, safe for Instagram/TikTok UI)
+                    magic_brolls_percentage=20,  # 20% B-roll coverage
+                    position=70  # Removed from API payload (not supported)
                 )
 
                 print(f"\n   ✅ Submagic processing complete!")
