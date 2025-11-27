@@ -302,7 +302,7 @@ class HeyGenWorkflow:
                     template_name="Karl",  # HARDCODED: Karl template (DO NOT CHANGE)
                     magic_zooms=False,  # No zooms
                     magic_brolls=True,  # Magic B-rolls from Submagic's library
-                    magic_brolls_percentage=20,  # 20% B-roll coverage
+                    magic_brolls_percentage=60,  # 20% B-roll coverage
                     position=70  # Removed from API payload (not supported)
                 )
 
