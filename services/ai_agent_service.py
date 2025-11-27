@@ -223,12 +223,13 @@ VOICE ID SUGGESTIONS:
 
 OTHER RULES:
 - Narration must be in {language}
-- HINGLISH PRESERVATION: If the original user idea contains Hinglish words (e.g., "wiwaha", "shaadi", "subah"), the narration MUST use those EXACT same spellings. Do NOT auto-correct or translate them.
+- LANGUAGE PRESERVATION: Use ONLY the words, tone, and language style from the ORIGINAL user input. DO NOT add words that the user did not provide. DO NOT add Hinglish words if the user wrote in pure English. DO NOT add English words if the user wrote in pure Hindi. Match the user's exact language style.
 - Narration MUST be 65-80 words (approximately 20-25 seconds when spoken)
 - Do NOT go below 65 words or above 80 words
 - Match emotion and voice to the video mood
 - Keywords should be Pexels-friendly search terms
 - Return ONLY the JSON object, no additional text
+- CRITICAL: Stay true to the user's original idea - do not add extra concepts or words they didn't mention
 
 IMPORTANT - SCRIPT LENGTH (CRITICAL):
 - Minimum: 65 words (enforce strictly)
@@ -239,7 +240,11 @@ IMPORTANT - SCRIPT LENGTH (CRITICAL):
         user_prompt = f"""Original User Input: "{user_idea}"
 Refined Creative Brief: "{refined_idea}"
 
-IMPORTANT: When generating the narration script, preserve any Hinglish words from the ORIGINAL USER INPUT exactly as the user spelled them. Do not auto-correct or translate these words.
+CRITICAL INSTRUCTION: Generate a narration script that:
+1. Uses ONLY the language style from the original user input (do not mix languages if user didn't)
+2. Stays focused on the exact topic the user mentioned
+3. Does NOT add random words or concepts the user never mentioned
+4. Expands naturally on their idea without changing the language or adding unrelated terms
 
 Analyze this and generate the decision JSON."""
 

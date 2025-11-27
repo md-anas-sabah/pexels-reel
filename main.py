@@ -128,9 +128,10 @@ def display_workflow_menu():
     print("   → Music + Voice narration + Subtitles")
     print("   → Just one input - AI does the rest!")
 
-    print("\n3. 🤖 HEYGEN AVATAR WORKFLOW")
-    print("   → AI avatar speaks your script")
-    print("   → Combined with B-roll footage")
+    print("\n3. 🤖 HEYGEN AVATAR WORKFLOW ⭐ AI-DRIVEN")
+    print("   → AI generates script from your idea")
+    print("   → AI avatar speaks the script")
+    print("   → Auto B-roll footage matching script")
     print("   → YouTube-style explainer videos")
 
     print("\n0. 🔙 Back / Exit")
@@ -585,14 +586,124 @@ def run_pexels_workflow(user_idea: str):
         print(f"\n❌ Error executing workflow: {e}")
 
 def run_heygen_workflow(user_idea: str):
-    """Execute HeyGen Avatar Workflow"""
-    print("\n🤖 HEYGEN AVATAR WORKFLOW")
+    """Execute HeyGen Avatar Workflow - AI-DRIVEN"""
+    print("\n🤖 HEYGEN AVATAR WORKFLOW ⭐ AI-DRIVEN")
     print("="*60)
     print(f"💡 Your idea: '{user_idea}'")
     print()
 
-    print("⚠️  Note: HeyGen Avatar workflow implementation coming soon!")
-    print("This will create YouTube-style videos with AI avatar + B-roll footage.")
+    try:
+        from workflows.heygen_workflow import HeyGenWorkflow
+        from services.ai_agent_service import AIAgentService
+        from datetime import datetime
+
+        # Initialize services
+        workflow = HeyGenWorkflow()
+        ai_agent = AIAgentService()
+
+        # Step 1: AI generates script and decisions from user idea
+        print("\n" + "="*80)
+        print("🤖 AI AGENT - ANALYZING YOUR IDEA")
+        print("="*80)
+        print("AI is generating script, keywords, and making creative decisions...")
+        print()
+
+        decisions = ai_agent.analyze_idea(user_idea)
+
+        # Display AI decisions
+        print("\n✅ AI ANALYSIS COMPLETE!")
+        print(f"\n📝 Generated Script ({len(decisions['narration'].split())} words):")
+        print(f"   {decisions['narration']}")
+        print(f"\n🎬 Category: {decisions['category']}")
+        print(f"🔍 Keywords: {', '.join(decisions['keywords'])}")
+        print(f"🎵 Music: {decisions['music_style']}")
+        print(f"🎙️ Voice Style: {decisions['voice_style']}")
+        print(f"😊 Emotion: {decisions['emotion']}")
+        print(f"🌐 Language: {decisions['language']}")
+
+        # Step 2: Let user select avatar
+        avatar = workflow.display_avatar_menu()
+
+        # Step 3: Get HeyGen voice ID
+        print("\n" + "="*80)
+        print("🎙️ VOICE SELECTION")
+        print("="*80)
+        print("Enter HeyGen voice ID:")
+        print("(You can find voice IDs in your HeyGen dashboard)")
+        print()
+
+        voice_id = input("Voice ID: ").strip()
+
+        if not voice_id:
+            print("⚠️  No voice ID provided, using default")
+            voice_id = "default_voice"
+
+        # Step 4: Optional settings
+        print("\n" + "="*80)
+        print("⚙️  OPTIONAL SETTINGS")
+        print("="*80)
+
+        # Title
+        title = input("Video title (press Enter to auto-generate): ").strip()
+        if not title:
+            title = f"AI Avatar Reel - {datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        # B-roll duration (calculate from script)
+        script_word_count = len(decisions['narration'].split())
+        estimated_duration = int((script_word_count / 2.5) + 5)  # ~2.5 words/sec + 5s buffer
+        print(f"\nB-roll duration (estimated from script: {estimated_duration}s):")
+        try:
+            broll_duration = int(input(f"Duration in seconds (default: {estimated_duration}): ") or str(estimated_duration))
+        except ValueError:
+            broll_duration = estimated_duration
+
+        # Step 5: Generate output filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"heygen_avatar_{timestamp}.mp4"
+        output_path = os.path.join("output", output_filename)
+
+        # Ensure output directory exists
+        Path("output").mkdir(exist_ok=True)
+
+        # Step 6: Execute workflow with AI-generated decisions
+        print("\n" + "="*80)
+        print("🚀 STARTING WORKFLOW")
+        print("="*80)
+        print("This may take several minutes...")
+        print("Steps: B-roll preparation → HeyGen generation → Submagic editing")
+        print()
+
+        result = workflow.execute(
+            script=decisions['narration'],  # AI-generated script
+            avatar_id=avatar["id"],
+            voice_id=voice_id,
+            output_path=output_path,
+            title=title,
+            emotion=decisions['emotion'],  # AI-selected emotion
+            broll_duration=broll_duration,
+            ai_keywords=decisions['keywords']  # AI-generated keywords for B-roll
+        )
+
+        print("\n" + "="*80)
+        print("✅ HEYGEN WORKFLOW COMPLETE!")
+        print("="*80)
+        print(f"📹 Final video: {result}")
+        print(f"🎭 Avatar: {avatar['name']}")
+        print(f"🎙️ Voice: {voice_id}")
+        print(f"😊 Emotion: {decisions['emotion']}")
+        print(f"🎬 Title: {title}")
+        print(f"📝 Script: {decisions['narration'][:50]}...")
+        print("="*80)
+
+    except ImportError as e:
+        print(f"\n❌ Error importing workflow: {e}")
+        print("   Make sure workflows/heygen_workflow.py and services/ai_agent_service.py exist")
+        import traceback
+        traceback.print_exc()
+    except Exception as e:
+        print(f"\n❌ Error executing workflow: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main():
     """Main function to run the application"""

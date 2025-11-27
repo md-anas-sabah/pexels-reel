@@ -53,6 +53,7 @@ class SubmagicService:
         magic_zooms: bool = True,
         magic_brolls: bool = True,
         magic_brolls_percentage: int = 60,
+        position: int = 70,
         webhook_url: Optional[str] = None
     ) -> Dict:
         """
@@ -68,6 +69,8 @@ class SubmagicService:
             magic_zooms: Enable AI auto-zoom effects (default: True)
             magic_brolls: Enable AI B-roll insertion (default: True)
             magic_brolls_percentage: B-roll density 0-100 (default: 60)
+            position: Subtitle vertical position 0-100 (default: 70, bottom with safe zone)
+                     50 = center, 70-80 = bottom (safe for Instagram/TikTok UI)
             webhook_url: Optional webhook URL for completion notification
 
         Returns:
@@ -89,7 +92,8 @@ class SubmagicService:
             "templateName": template_name,
             "magicZooms": magic_zooms,
             "magicBrolls": magic_brolls,
-            "magicBrollsPercentage": magic_brolls_percentage
+            "magicBrollsPercentage": magic_brolls_percentage,
+            "position": position  # Subtitle vertical position (70 = bottom with safe zone)
         }
 
         # Add webhook URL if provided
@@ -365,7 +369,8 @@ class SubmagicService:
         template_name: str = "Iman",
         magic_zooms: bool = True,
         magic_brolls: bool = True,
-        magic_brolls_percentage: int = 60
+        magic_brolls_percentage: int = 60,
+        position: int = 70
     ) -> str:
         """
         Complete end-to-end workflow: Create → Wait → Export → Download.
@@ -385,6 +390,7 @@ class SubmagicService:
             magic_zooms: Enable AI auto-zoom effects
             magic_brolls: Enable AI B-roll insertion
             magic_brolls_percentage: B-roll density 0-100
+            position: Subtitle vertical position 0-100 (default: 70)
 
         Returns:
             str: Path to the downloaded edited video
@@ -398,7 +404,8 @@ class SubmagicService:
             ...     template_name="Iman",
             ...     magic_zooms=True,
             ...     magic_brolls=True,
-            ...     magic_brolls_percentage=60
+            ...     magic_brolls_percentage=60,
+            ...     position=70
             ... )
         """
         logger.info("🎬 Starting complete Submagic workflow...")
@@ -411,7 +418,8 @@ class SubmagicService:
             template_name=template_name,
             magic_zooms=magic_zooms,
             magic_brolls=magic_brolls,
-            magic_brolls_percentage=magic_brolls_percentage
+            magic_brolls_percentage=magic_brolls_percentage,
+            position=position
         )
         project_id = project.get('id')
 

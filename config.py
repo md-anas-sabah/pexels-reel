@@ -44,10 +44,20 @@ class Config:
     # ==================== HEYGEN AVATARS ====================
 
     HEYGEN_AVATARS = [
-        {"id": "Angela-inblackskirt-20220820", "name": "Angela (Professional Female)"},
-        {"id": "josh-incasualtshirt-20220820", "name": "Josh (Casual Male)"},
-        {"id": "monica-inpinkskirt-20220820", "name": "Monica (Business)"},
-        {"id": "wayne-incasualsuit-20220820", "name": "Wayne (Corporate)"},
+        {"id": "Scarlett_standing_hall_front", "name": "Boy (Casual Young Male)", "gender": "male"},
+        {"id": "Nadim_public_5", "name": "Girl (Young Female)", "gender": "female"},
+        {"id": "Seema_Nurse_Side_2_public", "name": "Man (Professional Male)", "gender": "male"},
+        {"id": "Sabine_standing_office_front", "name": "Woman (Sabine - Office Professional)", "gender": "female"},
+        {"id": "d1a9317af98f4b0eb0df6244ce048d9d", "name": "Girl (Friendly Female)", "gender": "female"},
+        {"id": "41b4fd2958544f728dc3b762139c1203", "name": "Guy (Casual Male)", "gender": "male"},
+        {"id": "ae3acff58beb48fdb170a91185cc5632", "name": "Guy (Business Male)", "gender": "male"},
+        {"id": "bf32549a7065469b96f7fb6164f1f6ab", "name": "Girl (Professional Female)", "gender": "female"},
+    ]
+
+    # HeyGen Voice IDs (for avatar speech)
+    HEYGEN_VOICE_IDS = [
+        # Add your HeyGen voice IDs here - will be provided by user
+        # Format: {"id": "voice_id", "name": "Voice Name", "language": "en-US"}
     ]
 
     # ==================== AI AGENT OPTIONS ====================
@@ -76,8 +86,23 @@ class Config:
         "Wise_Woman": "Wise_Woman"
     }
 
-    # Voice Emotions
+    # Voice Emotions (for Fal AI TTS)
     EMOTIONS = ["happy", "sad", "angry", "fearful", "surprised", "disgusted", "neutral"]
+
+    # HeyGen Emotion Mapping (Maps AI Agent emotions to HeyGen-compatible emotions)
+    # HeyGen only accepts: 'Excited', 'Friendly', 'Serious', 'Soothing', 'Broadcaster', 'Angry'
+    HEYGEN_EMOTION_MAPPING = {
+        "happy": "Friendly",
+        "excited": "Excited",
+        "sad": "Serious",
+        "angry": "Angry",
+        "fearful": "Serious",
+        "surprised": "Excited",
+        "disgusted": "Serious",
+        "neutral": "Soothing",
+        "calm": "Soothing",
+        "professional": "Broadcaster"
+    }
 
     # Supported Languages
     LANGUAGES = ["English", "Hindi", "Arabic", "Urdu", "Hinglish"]
@@ -188,7 +213,7 @@ class Config:
 
     # ==================== TIMEOUT SETTINGS ====================
 
-    HEYGEN_TIMEOUT = 300  # 5 minutes for avatar generation
+    HEYGEN_TIMEOUT = 900  # 15 minutes for avatar generation (HeyGen takes ~12 mins)
     SUBMAGIC_TIMEOUT = 600  # 10 minutes for video editing
 
     # ==================== SUPABASE STORAGE SETTINGS ====================

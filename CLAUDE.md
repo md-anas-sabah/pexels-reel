@@ -51,27 +51,41 @@
 - [x] Integrate Submagic for subtitles/effects
 - [x] Update `main.py` to include local media workflow option
 
+### ✅ COMPLETED - HeyGen Avatar + B-Roll Workflow (Instagram Reels Style)
+
+**HeyGen Workflow** ✅ **NEW! (Nov 26, 2025)**
+
+- [x] Create `workflows/heygen_workflow.py` - AI-driven avatar + B-roll workflow
+- [x] Implement AI Agent integration (script, keywords, emotion detection)
+- [x] Implement B-roll preparation (6 clips × 4s = 24s, Pexels API)
+- [x] Implement HeyGen avatar generation (transparent background, matting=true)
+- [x] Implement FFmpeg compositing (avatar over B-roll, Instagram style)
+- [x] Fix HeyGen emotion mapping (AI emotions → HeyGen emotions)
+- [x] Fix HeyGen video status endpoint (v1 endpoint, not v2)
+- [x] Fix HeyGen timeout (increased to 900s / 15 minutes)
+- [x] Update `utils/video_processor.py` - composite_avatar_with_broll() for Instagram layout
+- [x] Integrate Supabase upload for composited video
+- [x] Integrate Submagic for subtitles/effects on final video
+- [x] Update `main.py` to include HeyGen workflow option
+
+**Core Services** ✅
+
+- [x] `services/pexels_service.py` - Pexels API client
+- [x] `services/heygen_service.py` - HeyGen API client (v2 generate, v1 status)
+- [x] `services/submagic_service.py` - Submagic API client
+- [x] `services/audio_service.py` - Fal AI integration (music + enhanced TTS)
+- [x] `utils/video_processor.py` - FFmpeg wrapper (trim, concat, composite, chromakey)
+- [x] `utils/file_uploader.py` - Supabase storage with signed URLs
+
 ### 🔜 PENDING (0%)
-
-**Phase 2: Core Services**
-
-- [ ] `services/pexels_service.py` - Pexels API client
-- [ ] `services/heygen_service.py` - HeyGen API client
-- [ ] `services/submagic_service.py` - Submagic API client
-- [ ] `services/audio_service.py` - Fal AI integration (music + enhanced TTS)
-- [ ] `utils/video_processor.py` - FFmpeg wrapper
-
-**Phase 3: Remaining Workflows**
-
-- [ ] `workflows/local_media_workflow.py` - Local video processing
-- [ ] `workflows/heygen_workflow.py` - Avatar + B-roll workflow
 
 **Phase 4: Testing & Polish**
 
 - [ ] Unit tests for all services
 - [ ] Integration tests for workflows
 - [ ] End-to-end testing with real APIs
-- [ ] Bug fixes and optimization
+- [ ] Performance optimization
+- [ ] Error handling improvements
 
 ---
 
@@ -640,20 +654,183 @@ Match the tone to the video concept.
 
 ---
 
-#### 3.3 `workflows/heygen_workflow.py` ⭐ **ENHANCED**
+#### 3.3 `workflows/heygen_workflow.py` ⭐ **PRODUCTION FLOW - HEYGEN + SUBMAGIC ONLY**
 
-**Steps**:
+**CURRENT IMPLEMENTATION** (Updated: Nov 26, 2025 - Verified from codebase):
 
-1. User selects avatar from Config.HEYGEN_AVATARS
-2. Generate avatar video with HeyGen (async)
-3. While waiting: Search Pexels for B-roll → Download → Trim → Concatenate
-4. Wait for HeyGen completion
-5. Composite avatar over B-roll (picture-in-picture, bottom-right, 30% size)
-6. Upload composite to Supabase
-7. Submit to Submagic (with captions + effects)
-8. Download final YouTube-style video
+**Philosophy**: Let HeyGen generate full-screen avatar, let Submagic add AI B-rolls + subtitles. NO Pexels, NO FFmpeg compositing!
 
-**Helper**: `extract_keywords_from_script()` - Auto-generate B-roll search terms from script
+---
+
+### **WORKFLOW STEPS** (As Implemented in Code):
+
+#### **Step 1: User Input**
+- User provides video idea (single text input)
+- User selects avatar from interactive menu (`display_avatar_menu()`)
+- Shows avatar names with gender icons (👨/👩)
+- Returns selected avatar dict with `id`, `name`, `gender`
+
+#### **Step 2: HeyGen Avatar Generation** (Full Screen, White Background)
+**Code**: `heygen_workflow.py:242-250`
+
+```python
+heygen_result = self.heygen.generate_video(
+    script=script,
+    avatar_id=avatar_id,
+    voice_id=voice_id,
+    background_type="color",
+    background_value="#FFFFFF",  # White background
+    title=title or "AI Avatar Reel",
+    emotion=emotion
+)
+```
+
+**HeyGen Service Configuration** (`heygen_service.py:81-93`):
+- `scale`: 1.0 (full-screen avatar, not scaled down)
+- `offset`: {"x": 0, "y": 0} (centered horizontally and vertically)
+- `matting`: false (solid background, no transparency)
+- `background_type`: "color"
+- `background_value`: "#FFFFFF" (white background)
+- `super_resolution`: true (high quality)
+- `talking_style`: "stable" (consistent head movement)
+
+**Emotion Mapping** (`heygen_service.py:63-73`):
+- AI emotions (happy, sad, calm, etc.) are automatically mapped to HeyGen-compatible emotions
+- HeyGen accepts: 'Excited', 'Friendly', 'Serious', 'Soothing', 'Broadcaster', 'Angry'
+- Mapping defined in `Config.HEYGEN_EMOTION_MAPPING`
+- Unknown emotions fallback to 'Friendly'
+
+**Polling Strategy** (`heygen_service.py:202-264`):
+- **NO TIMEOUT** - waits indefinitely until video completes
+- Poll interval: 10 seconds
+- Accepts statuses: "processing", "pending", "queued", "completed"
+- Fails on: "failed", "error"
+- Uses **v1 endpoint** for status checks: `https://api.heygen.com/v1/video_status.get`
+
+#### **Step 3: Download HeyGen Video**
+**Code**: `heygen_workflow.py:260-274`
+- Downloads HeyGen video to temp directory
+- Saves copy to output folder: `output/heygen_raw_YYYYMMDD_HHMMSS.mp4`
+- This is the **raw avatar video** before Submagic processing
+
+#### **Step 4: Upload to Supabase**
+**Code**: `heygen_workflow.py:276-278`
+- Uploads HeyGen video to Supabase storage
+- Gets public URL for Submagic API consumption
+- Uses `FileUploader.upload()` method (returns signed URL)
+
+#### **Step 5: Submagic Processing** (Magic B-rolls + Subtitles)
+**Code**: `heygen_workflow.py:280-296`
+
+```python
+final_path = self.submagic.process_video(
+    video_url=heygen_supabase_url,
+    output_path=str(output_path),
+    title="AI Generated Avatar Reel",
+    language="en",
+    template_name="Alex",  # Subtitle positioning template
+    magic_zooms=False,     # No auto-zoom effects
+    magic_brolls=True,     # AI B-rolls from Submagic library
+    magic_brolls_percentage=50  # 50% B-roll coverage
+)
+```
+
+**Submagic Service Workflow** (`submagic_service.py:359-479`):
+1. **Create Project** - Submit video URL, returns `project_id`
+2. **Wait for Processing** - Poll status until "ready" or "completed"
+3. **Export Video** - Trigger final rendering, get download URL
+4. **Download** - Save edited video to local filesystem
+
+**Submagic Features Applied**:
+- **Auto-generated subtitles** from avatar speech (98%+ accuracy)
+- **Magic B-rolls** (50% coverage) - AI selects relevant stock footage
+- **Alex template** - Professional caption styling with specific positioning
+- **NO Magic Zooms** - Disabled for cleaner output
+- **Language**: English (default, can be made dynamic)
+
+**Timeout**: 600 seconds (10 minutes) for Submagic processing
+
+#### **Step 6: Download Final Video**
+**Code**: `heygen_workflow.py:298-307`
+- Downloads final video from Submagic
+- Saved to: output path specified by user
+- Typically: `output/final_with_subtitles_YYYYMMDD_HHMMSS.mp4`
+
+---
+
+### **ERROR HANDLING**:
+
+**Submagic Failure Fallback** (`heygen_workflow.py:309-320`):
+- If Submagic fails, workflow returns the raw HeyGen video
+- User gets `heygen_raw_YYYYMMDD_HHMMSS.mp4` (avatar without B-rolls/subtitles)
+- Prints warning but doesn't crash the entire workflow
+
+---
+
+### **WHAT WAS REMOVED** (From Old Flows):
+
+❌ **Pexels API Integration**:
+- Old code had `prepare_broll()` method (still exists but unused in current flow)
+- Old code had `extract_keywords_from_script()` (still exists but unused)
+- No B-roll fetching from Pexels anymore
+
+❌ **FFmpeg Compositing**:
+- No manual video compositing
+- No `composite_avatar_with_broll()` usage
+- No chromakey/green screen removal
+
+❌ **Complex Positioning**:
+- No custom avatar scaling/positioning logic
+- No Instagram-style bottom-half layout
+- Simple full-screen centered approach
+
+---
+
+### **OUTPUT FILES**:
+
+1. **`output/heygen_raw_YYYYMMDD_HHMMSS.mp4`**
+   - Raw HeyGen avatar video
+   - Full-screen avatar with white background
+   - No subtitles, no B-rolls
+   - Saved before Submagic processing
+
+2. **`output/final_with_subtitles_YYYYMMDD_HHMMSS.mp4`** (or user-specified path)
+   - Final edited reel from Submagic
+   - Includes AI-generated B-rolls (50% coverage)
+   - Includes auto-generated subtitles (Alex template)
+   - Production-ready for social media
+
+---
+
+### **KEY TECHNICAL DETAILS**:
+
+**HeyGen API**:
+- Endpoint: `POST https://api.heygen.com/v2/video/generate`
+- Status check: `GET https://api.heygen.com/v1/video_status.get?video_id={id}` (v1, not v2!)
+- Dimensions: 720x1280 (9:16 portrait)
+- Infinite polling until completion
+
+**Submagic API**:
+- Create: `POST {base_url}/projects`
+- Status: `GET {base_url}/projects/{id}`
+- Export: `POST {base_url}/projects/{id}/export`
+- Header: `x-api-key` (NOT Authorization Bearer)
+- Timeout: 600s (configurable in Config)
+
+**Supabase Storage**:
+- Upload via `FileUploader.upload()` method
+- Returns signed URL valid for 1 hour
+- Required for Submagic API (needs public URL)
+
+---
+
+### **UNUSED METHODS** (Still in Code but Not Called):
+
+- `extract_keywords_from_script()` - Lines 81-121 (for Pexels, not used)
+- `prepare_broll()` - Lines 123-205 (Pexels B-roll preparation, not used)
+- `generate_video_with_broll()` in `heygen_service.py` (Lines 306-337) - Convenience method for video backgrounds
+
+These methods remain in the codebase for potential future use but are **not part of the current production flow**.
 
 ---
 
