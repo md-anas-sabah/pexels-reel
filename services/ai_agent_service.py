@@ -195,18 +195,19 @@ Return ONLY valid JSON with these exact fields:
   "duration": "short/medium/long (short=5-15s, medium=15-30s, long=30+s)",
   "music_style": "Select ONE from: [Upbeat & Energetic, Calm & Peaceful, Cinematic & Epic, Corporate & Professional, Hip-Hop & Urban, Pop & Catchy]",
   "voice_style": "Select ONE from: [Professional Narrator, Friendly & Casual, Energetic & Excited, Calm & Soothing, Authoritative]",
-  "narration": "Generate compelling 20-25 second TTS script in {language}. MUST be 65-80 words. CRITICAL: If user wrote in Hinglish, use the EXACT same words/spellings from their idea in the script (preserve Hinglish exactly as written). Make it engaging and complete.",
+  "narration": "Generate compelling 25-30 second TTS script in {language}. MUST be 85-100 words. Include a natural outro/conclusion at the end. CRITICAL: If user wrote in Hinglish, use the EXACT same words/spellings from their idea in the script (preserve Hinglish exactly as written). Make it engaging and complete with a strong ending.",
   "voice_id": "Select EXACTLY ONE from: [Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy] - DO NOT create new names",
   "emotion": "Select ONE from: [happy, sad, angry, fearful, surprised, disgusted, neutral]",
   "language": "{language}",
   "outro_text": "Generate a 4-5 word catchy outro/call-to-action text (e.g., 'Follow for more!', 'Visit us today!', 'Subscribe now!')"
 }}
 
-CRITICAL RULES - SCRIPT LENGTH:
-- Target: 65-80 words for 20-25 second audio
-- Minimum: 65 words (ensure full content)
-- Maximum: 80 words (prevent truncation)
-- Quality and completeness - make it engaging
+CRITICAL RULES - SCRIPT LENGTH (UPDATED FOR SUBMAGIC PADDING):
+- Target: 85-100 words for 25-30 second audio (extra 5s buffer for Submagic trimming)
+- Minimum: 85 words (ensure full content after Submagic trim)
+- Maximum: 100 words (prevent over-length)
+- MUST include natural conclusion/outro at end (last 10-15 words)
+- Quality and completeness - make it engaging with strong ending
 
 CRITICAL RULES - VOICE ID:
 - ONLY use these EXACT voice_id values: Wise_Woman, Friendly_Person, Inspirational_Girl, Deep_Voice_Man, Calm_Women, Casual_Guy, Lively_Girl, Patient_Man, Young_Knight, Determined_Man, Lovely_Girl, Decent_Boy
@@ -224,18 +225,20 @@ VOICE ID SUGGESTIONS:
 OTHER RULES:
 - Narration must be in {language}
 - LANGUAGE PRESERVATION: Use ONLY the words, tone, and language style from the ORIGINAL user input. DO NOT add words that the user did not provide. DO NOT add Hinglish words if the user wrote in pure English. DO NOT add English words if the user wrote in pure Hindi. Match the user's exact language style.
-- Narration MUST be 65-80 words (approximately 20-25 seconds when spoken)
-- Do NOT go below 65 words or above 80 words
+- Narration MUST be 85-100 words (approximately 25-30 seconds when spoken)
+- Do NOT go below 85 words or above 100 words
 - Match emotion and voice to the video mood
 - Keywords should be Pexels-friendly search terms
 - Return ONLY the JSON object, no additional text
 - CRITICAL: Stay true to the user's original idea - do not add extra concepts or words they didn't mention
+- MUST include a natural conclusion/outro sentence at the end (10-15 words) as buffer for Submagic trimming
 
-IMPORTANT - SCRIPT LENGTH (CRITICAL):
-- Minimum: 65 words (enforce strictly)
-- Target: 70-75 words (ideal)
-- Maximum: 80 words (strict limit)
-- This ensures 20-25 seconds of engaging audio content"""
+IMPORTANT - SCRIPT LENGTH (CRITICAL - UPDATED FOR SUBMAGIC):
+- Minimum: 85 words (enforce strictly - compensates for Submagic's 4s trim)
+- Target: 90-95 words (ideal)
+- Maximum: 100 words (strict limit)
+- This ensures 25-30 seconds of audio, with 4-5s buffer for Submagic auto-trimming
+- Last 10-15 words should be conclusion/outro that can be trimmed if needed"""
 
         user_prompt = f"""Original User Input: "{user_idea}"
 Refined Creative Brief: "{refined_idea}"

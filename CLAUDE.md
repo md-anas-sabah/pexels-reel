@@ -767,6 +767,67 @@ final_path = self.submagic.process_video(
 
 ---
 
+### **KNOWN ISSUES (UNRESOLVED)**:
+
+#### **Issue 1: Submagic Auto-Trimming Problem** ❌ **NOT SOLVED**
+
+**Problem:**
+- Submagic automatically trims ~2-4 seconds from the end of videos
+- This cuts off the avatar's speech mid-sentence
+- Audio gets clipped, script becomes incomplete
+- Example: 19s HeyGen video → 17s after Submagic (2s of audio lost)
+
+**Attempted Solutions (FAILED):**
+
+1. **FFmpeg Padding Approach** ❌
+   - Added 4s of frozen frames at end using `tpad` filter
+   - Code: `video_processor.py:add_padding()` method
+   - Implementation: `heygen_workflow.py:276-284`
+   - **Result:** Did NOT work - Submagic still trims actual content
+   - **Reason:** Submagic's trimming is unpredictable and not based solely on frozen frames
+
+2. **Increased Script Length** ❌
+   - Changed AI script from 65-80 words to 85-100 words
+   - Added natural outro/conclusion at end (10-15 words buffer)
+   - Code: `ai_agent_service.py:198, 228-241`
+   - **Result:** Did NOT work - Longer scripts still get trimmed
+   - **Reason:** Submagic trims based on video duration, not script content
+
+**Current Workaround:**
+- Use raw HeyGen video (`heygen_raw_*.mp4`) if complete audio is critical
+- Skip Submagic processing for avatar videos where speech completion is essential
+- Fallback message shown when Submagic processing fails
+
+**Potential Future Solutions (NOT IMPLEMENTED):**
+- Contact Submagic support to disable auto-trimming feature
+- Use different subtitle service that doesn't auto-trim
+- Manually add subtitles using FFmpeg instead of Submagic
+- Add white noise/audio at end to prevent silence detection
+
+**Code References:**
+- Padding function: `utils/video_processor.py:151-195`
+- Workflow implementation: `workflows/heygen_workflow.py:276-284`
+- AI script length update: `services/ai_agent_service.py:198, 228-241`
+
+---
+
+#### **Issue 2: Avatar Aspect Ratio / Framing Problem** ✅ **SOLVED**
+
+**Problem (RESOLVED):**
+- Some avatars didn't fill full 9:16 portrait frame
+- White bars appeared at top/bottom (~15-20% of screen)
+- Avatar appeared in center strip instead of full screen
+
+**Solution (IMPLEMENTED):**
+- Increased `scale` to 1.8 (zoom in 80%)
+- Centered `offset` to {"x": 0, "y": 0}
+- Updated dimensions to 720x1280 (hardcoded 9:16 aspect ratio)
+- Code: `services/heygen_service.py:84-89, 106-108`
+
+**Status:** ✅ **RESOLVED** - Avatars now properly fill 9:16 portrait frame
+
+---
+
 ### **WHAT WAS REMOVED** (From Old Flows):
 
 ❌ **Pexels API Integration**:

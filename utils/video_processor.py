@@ -148,6 +148,52 @@ class VideoProcessor:
             logger.error(f"Video trim failed: {str(e)}")
             raise
 
+    def add_padding(
+        self,
+        input_path: str,
+        output_path: str,
+        padding_duration: float = 2.0
+    ) -> str:
+        """
+        Add padding at the end of video by freezing last frame
+
+        This prevents Submagic from trimming the actual content.
+        Submagic auto-trims ~2s from end, so we add 2s padding to compensate.
+
+        Args:
+            input_path: Path to input video
+            output_path: Path to save padded video
+            padding_duration: Duration to pad in seconds (default: 2.0)
+
+        Returns:
+            Path to padded video
+        """
+        print(f"\n🔄 Adding {padding_duration}s padding to video...")
+        print(f"   Input: {Path(input_path).name}")
+        print(f"   Purpose: Prevent Submagic from trimming actual content")
+
+        try:
+            cmd = [
+                "ffmpeg",
+                "-i", input_path,
+                "-vf", f"tpad=stop_mode=clone:stop_duration={padding_duration}",
+                "-c:a", "copy",  # Keep audio unchanged
+                "-y", output_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print(f"   ✅ Padded video saved: {Path(output_path).name}")
+                print(f"   Last frame frozen for {padding_duration}s at end")
+                return output_path
+            else:
+                raise Exception(f"FFmpeg padding error: {result.stderr}")
+
+        except Exception as e:
+            logger.error(f"Video padding failed: {str(e)}")
+            raise
+
     def calculate_clip_duration(self, num_clips: int, target_total: int = 20) -> float:
         """
         Calculate duration per clip to reach target total

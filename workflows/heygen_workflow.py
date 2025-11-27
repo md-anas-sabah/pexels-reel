@@ -273,11 +273,21 @@ class HeyGenWorkflow:
             shutil.copy2(str(heygen_local_path), str(heygen_output))
             print(f"\n📁 HeyGen video saved: {heygen_output}")
 
-            # Step 5: Upload to Supabase for Submagic
-            print(f"\n☁️  Uploading HeyGen video to Supabase for Submagic...")
-            heygen_supabase_url = self.uploader.upload(str(heygen_local_path))
+            # Step 5: Add padding to prevent Submagic auto-trim
+            # Submagic automatically trims from end, so we add 4s padding to be safe
+            print(f"\n🔄 Adding padding to prevent Submagic from trimming content...")
+            padded_path = self.temp_dir / f"heygen_padded_{timestamp}.mp4"
+            self.processor.add_padding(
+                input_path=str(heygen_local_path),
+                output_path=str(padded_path),
+                padding_duration=4.0  # Add 4 seconds of frozen last frame
+            )
 
-            # Step 6: Submit to Submagic for B-rolls + subtitles + effects
+            # Step 6: Upload padded video to Supabase for Submagic
+            print(f"\n☁️  Uploading padded video to Supabase for Submagic...")
+            heygen_supabase_url = self.uploader.upload(str(padded_path))
+
+            # Step 7: Submit to Submagic for B-rolls + subtitles + effects
             print(f"\n✨ Submitting to Submagic for Magic B-rolls and subtitles...")
             print(f"   Video URL: {heygen_supabase_url[:60]}...")
             print("   Settings: Karl template, NO Zooms, Magic B-rolls (20%)")
